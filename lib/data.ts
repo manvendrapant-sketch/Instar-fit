@@ -185,7 +185,6 @@ export interface SpaceTile {
 export interface SpaceDef {
   id: 'clients' | 'grow' | 'business';
   title: string;
-  group: 'g-clients' | 'g-grow' | 'g-business';
   lede: string;
   tiles: SpaceTile[];
 }
@@ -194,7 +193,6 @@ export const SPACES: SpaceDef[] = [
   {
     id: 'clients',
     title: 'Clients',
-    group: 'g-clients',
     lede: 'Everyone you coach. Open any client to see their program, nutrition, check-ins, messages and billing in one place.',
     tiles: [
       { id: 'roster', title: 'Roster', description: '36 active clients, sorted by who needs you most.', statValue: '36', statLabel: 'active', lead: true },
@@ -207,7 +205,6 @@ export const SPACES: SpaceDef[] = [
   {
     id: 'grow',
     title: 'Grow',
-    group: 'g-grow',
     lede: 'Turn followers into clients. Leads, outreach, content that converts and coaches you bring on board.',
     tiles: [
       { id: 'pipeline', title: 'Pipeline', description: 'From first storefront tap to paying client.', statValue: '48', statLabel: 'leads this month', lead: true },
@@ -220,7 +217,6 @@ export const SPACES: SpaceDef[] = [
   {
     id: 'business',
     title: 'Business',
-    group: 'g-business',
     lede: 'The money side. Payouts, offers, your storefront and the settings that run it all.',
     tiles: [
       { id: 'payouts', title: 'Payouts', description: 'Money in, pending and on its way to you.', statValue: '$2,104', statLabel: 'Friday', lead: true },

@@ -43,12 +43,7 @@ export function Sidebar() {
                 <span aria-hidden="true">{spaceActive ? '•' : ''}</span>
               </div>
               {space.tiles.map((tile) => (
-                <Link
-                  key={tile.id}
-                  href={`/${space.id}#${tile.id}`}
-                  className={`ins-nav ${space.group}`}
-                  onClick={close}
-                >
+                <Link key={tile.id} href={`/${space.id}#${tile.id}`} className="ins-nav" onClick={close}>
                   <Icon name={tile.id as IconName} />
                   {tile.title}
                   {SPACE_COUNTS[tile.id] && <span className="n">{SPACE_COUNTS[tile.id]}</span>}

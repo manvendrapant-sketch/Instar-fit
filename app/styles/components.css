@@ -1,6 +1,7 @@
 /* Instar · Obsidian+ component styles, ported from the design system export
-   (project/components/bundle.css). Every colour, radius and shadow comes from tokens.css.
-   Kind colour: set a .k-* class on a queue row / chip. Group colour: set a .g-* class on a nav item. */
+   (project/components/bundle.css, updated release). Every colour, radius and shadow comes from
+   tokens.css. Kind colour: set a .k-* class on a queue row / chip. Nav items are neutral; the
+   selected one uses nav-on-* and blue. */
 
 :where(.ins),
 :where(.ins) * {
@@ -20,6 +21,10 @@
   border: 0;
   padding: 0;
   cursor: pointer;
+}
+:where(.ins) a {
+  color: inherit;
+  text-decoration: none;
 }
 :where(.ins) input {
   font: inherit;
@@ -63,7 +68,7 @@
   padding: 0 var(--space-20);
   border-radius: var(--radius-pill);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: var(--space-8);
@@ -167,11 +172,11 @@
   margin: 0;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 18px;
-  letter-spacing: -0.035em;
+  font-size: 20px;
+  letter-spacing: -0.025em;
 }
 
-/* Nav item (sidebar directory) */
+/* Nav item (sidebar directory): neutral, one blue for the selected item */
 .ins-dir {
   display: flex;
   flex-direction: column;
@@ -203,25 +208,26 @@
   min-height: 40px;
   padding: 0 var(--space-12);
   border-radius: var(--radius-nav);
-  color: var(--muted);
+  color: var(--text);
+  opacity: 0.86;
   font-size: 14.5px;
   font-weight: 600;
   width: 100%;
   text-align: left;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.2s, color 0.2s, opacity 0.2s;
 }
 .ins-nav:hover {
-  color: var(--text);
+  opacity: 1;
   background: var(--chip);
 }
 .ins-nav .ins-i {
-  padding: 5px;
-  width: 28px;
-  height: 28px;
+  padding: 6px;
+  width: 30px;
+  height: 30px;
   border-radius: 9px;
-  margin-left: -4px;
-  color: var(--g, var(--accent));
-  background: color-mix(in srgb, var(--g, var(--accent)) 14%, transparent);
+  margin-left: -5px;
+  color: var(--muted);
+  background: var(--chip);
 }
 .ins-nav .n {
   margin-left: auto;
@@ -236,43 +242,30 @@
   height: 20px;
   border-radius: 10px;
   padding: 0 6px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-family: var(--font-display);
+  background: var(--blue);
+  color: var(--blue-ink);
   font-size: 11px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-variant-numeric: tabular-nums;
 }
-.ins-nav.on .ins-i {
-  background: var(--g, var(--accent));
-  color: var(--bg);
-}
-[data-theme='dark'] .ins-nav.on {
-  color: #ffffff;
-  background: color-mix(in srgb, var(--g, var(--accent)) 15%, rgba(255, 255, 255, 0.03));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g, var(--accent)) 35%, transparent);
-}
-[data-theme='light'] .ins-nav.on {
-  color: #ffffff;
-  background: var(--nav-on-light);
+.ins-nav.on {
+  opacity: 1;
+  background: var(--nav-on-bg);
+  color: var(--nav-on-text);
   box-shadow: var(--shadow-nav-on);
 }
-[data-theme='light'] .ins-nav.on .ins-i {
-  color: var(--nav-on-light);
+.ins-nav.on:hover {
+  background: var(--nav-on-bg);
 }
-[data-theme='light'] .ins-nav.on .n {
-  color: rgba(255, 255, 255, 0.7);
+.ins-nav.on .ins-i {
+  background: var(--blue);
+  color: var(--blue-ink);
 }
-.g-clients {
-  --g: var(--accent);
-}
-.g-grow {
-  --g: var(--ok);
-}
-.g-business {
-  --g: var(--warn);
+.ins-nav.on .n {
+  color: var(--nav-on-count);
 }
 
 /* Ask bar */
@@ -315,15 +308,15 @@
 }
 .ins-stats b {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 30px;
-  letter-spacing: -0.045em;
+  font-weight: 400;
+  font-size: 34px;
+  letter-spacing: -0.03em;
   line-height: 1;
 }
 .ins-stats span {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* Queue item */
@@ -417,9 +410,9 @@
 }
 .ins-facts b {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 400;
   font-size: 24px;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.02em;
 }
 .ins-facts span {
   font-size: 12.5px;
@@ -455,7 +448,7 @@
 .ins-clear b {
   font-family: var(--font-display);
   font-size: 28px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.03em;
 }
 @media (max-width: 760px) {
@@ -471,12 +464,20 @@
   }
 }
 
-/* Metric card */
+/* Metric card: the main card on each page, in the Obsidian blue */
 .ins-money {
   padding: var(--space-26);
   position: relative;
   overflow: hidden;
-  box-shadow: var(--shadow-float);
+  background: linear-gradient(135deg, var(--hero-from) 0%, var(--hero-to) 100%);
+  color: var(--hero-text);
+  border-color: transparent;
+  box-shadow: var(--shadow-hero);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.ins-money .ins-label {
+  color: var(--hero-muted);
 }
 .ins-money-row {
   display: flex;
@@ -487,18 +488,18 @@
 }
 .ins-big {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 400;
   font-size: 64px;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.045em;
   line-height: 0.95;
 }
 .ins-delta {
   margin-top: 10px;
   font-size: 13.5px;
-  color: var(--muted);
+  color: var(--hero-muted);
 }
 .ins-delta b {
-  color: var(--ok);
+  color: var(--hero-text);
   font-weight: 600;
 }
 .ins-ring {
@@ -520,22 +521,34 @@
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--hero-muted);
   text-align: center;
   line-height: 1.2;
 }
 .ins-ring .rt b {
   font-family: var(--font-display);
   font-size: 22px;
-  color: var(--text);
-  font-weight: 600;
+  color: var(--hero-text);
+  font-weight: 400;
   letter-spacing: -0.02em;
 }
 .ins-ring .track {
-  stroke: var(--line);
+  stroke: var(--ring-track);
 }
 .ins-ring .fill {
-  stroke: var(--accent);
+  stroke: var(--hero-text);
+}
+.ins-spark {
+  margin-top: 22px;
+  height: 64px;
+  width: 100%;
+  display: block;
+}
+.ins-spark .ln {
+  fill: none;
+  stroke: var(--hero-text);
+  stroke-width: 2;
+  opacity: 0.9;
 }
 
 /* Roster pulse */

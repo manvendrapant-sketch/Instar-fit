@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Unbounded, Figtree, IBM_Plex_Mono } from 'next/font/google';
+import { Sora, Hanken_Grotesk, IBM_Plex_Mono } from 'next/font/google';
 import { AppStateProvider } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
 import { Sidebar } from '@/components/Sidebar';
@@ -7,17 +7,17 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { Toast } from '@/components/Toast';
 import './globals.css';
 
-const unbounded = Unbounded({
+const sora = Sora({
   subsets: ['latin'],
-  weight: ['500', '600', '700'],
-  variable: '--font-unbounded',
+  weight: ['300', '400', '500', '600'],
+  variable: '--font-sora',
   display: 'swap',
 });
 
-const figtree = Figtree({
+const hankenGrotesk = Hanken_Grotesk({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
-  variable: '--font-figtree',
+  variable: '--font-hanken-grotesk',
   display: 'swap',
 });
 
@@ -38,7 +38,7 @@ const themeInitScript = `(function(){try{var t=JSON.parse(localStorage.getItem('
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-theme="dark" className={`${unbounded.variable} ${figtree.variable} ${plexMono.variable}`}>
+    <html lang="en" data-theme="dark" className={`${sora.variable} ${hankenGrotesk.variable} ${plexMono.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
