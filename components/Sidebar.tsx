@@ -8,6 +8,7 @@ import { Icon, type IconName } from '@/lib/icons';
 import { SPACES, QUEUE } from '@/lib/data';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
+import { OFFERS_PATH } from '@/lib/offers';
 
 const SPACE_COUNTS: Record<string, string> = {
   roster: '36',
@@ -19,7 +20,7 @@ const SPACE_COUNTS: Record<string, string> = {
 export function Sidebar({ coach }: { coach: { displayName: string; email: string } }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { done, setNavOpen, storefront } = useAppState();
+  const { done, setNavOpen, storefront, offers } = useAppState();
   const [loggingOut, setLoggingOut] = useState(false);
   const left = QUEUE.length - done.length;
 
@@ -56,6 +57,22 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                 <span aria-hidden="true">{spaceActive ? '•' : ''}</span>
               </div>
               {space.tiles.map((tile) => {
+                if (tile.id === 'offers') {
+                  const on = pathname.startsWith(OFFERS_PATH);
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={OFFERS_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <Icon name="offers" />
+                      {tile.title}
+                      {offers.length > 0 && <span className="n">{offers.length}</span>}
+                    </Link>
+                  );
+                }
                 if (tile.id === 'storefront') {
                   const on = pathname === STOREFRONT_PATH;
                   return (

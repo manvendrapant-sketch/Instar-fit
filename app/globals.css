@@ -3,6 +3,7 @@
 @import './styles/layout.css';
 @import './styles/auth.css';
 @import './styles/storefront.css';
+@import './styles/offers.css';
 
 * {
   box-sizing: border-box;

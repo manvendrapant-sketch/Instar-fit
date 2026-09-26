@@ -5,6 +5,8 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
+import { OfferCard } from '@/components/OfferCard';
+import { OFFERS_PATH } from '@/lib/offers';
 import {
   AVATAR_MAX_BYTES,
   BIO_MAX,
@@ -21,7 +23,9 @@ function initials(name: string) {
 }
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
-  const { storefront, saveStorefront, toast } = useAppState();
+  const { storefront, saveStorefront, toast, offers } = useAppState();
+  const shownOffers = offers.filter((o) => o.visible);
+  const hasOffer = offers.length > 0;
   const [draft, setDraft] = useState<StorefrontDraft>({ ...defaults, bio: '', avatarUrl: null });
   const [errors, setErrors] = useState<Partial<Record<StorefrontField, string>>>({});
   const [editing, setEditing] = useState(false);
@@ -222,27 +226,35 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
               <span className="ins-num">{storefront!.handle}.instar.co</span> is yours.
             </h2>
             <p>
-              It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram
-              bio.
+              {hasOffer
+                ? 'It isn’t public yet. Connect payouts, then publish it and put the link in your Instagram bio.'
+                : 'It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram bio.'}
             </p>
             <ol className="ins-sf-steps">
               <li className="done">
                 <Icon name="check" className="ins-i sm" />
                 Create your storefront
               </li>
-              <li>
-                <span className="ins-sf-step-n">2</span>
-                Add your first offer
-              </li>
+              {hasOffer ? (
+                <li className="done">
+                  <Icon name="check" className="ins-i sm" />
+                  Add your first offer
+                </li>
+              ) : (
+                <li>
+                  <span className="ins-sf-step-n">2</span>
+                  Add your first offer
+                </li>
+              )}
               <li>
                 <span className="ins-sf-step-n">3</span>
                 Connect payouts to publish
               </li>
             </ol>
             <div className="ins-actions">
-              <Link href="/business#offers" className="ins-btn go">
-                Add your first offer
-                <Icon name="arrow" />
+              <Link href={hasOffer ? OFFERS_PATH : `${OFFERS_PATH}/new`} className={`ins-btn ${hasOffer ? '' : 'go'}`}>
+                {hasOffer ? 'Manage offers' : 'Add your first offer'}
+                {!hasOffer && <Icon name="arrow" />}
               </Link>
               <button type="button" className="ins-btn" onClick={() => setEditing(true)}>
                 Edit details
@@ -280,10 +292,18 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
               <b className={`ins-sf-name ${shown.displayName ? '' : 'ph'}`}>{shown.displayName || 'Your name'}</b>
               <p className={`ins-sf-bio ${shown.bio ? '' : 'ph'}`}>{shown.bio || 'A line about who you coach and how.'}</p>
               <span className="ins-label ins-sf-offers-l">Offers</span>
-              <div className="ins-sf-empty">
-                <Icon name="offers" />
-                <span>Your offers will show here once you add them.</span>
-              </div>
+              {shownOffers.length > 0 ? (
+                <div className="ins-sf-offers">
+                  {shownOffers.map((o) => (
+                    <OfferCard key={o.id} offer={o} compact />
+                  ))}
+                </div>
+              ) : (
+                <div className="ins-sf-empty">
+                  <Icon name="offers" />
+                  <span>Your offers will show here once you add them.</span>
+                </div>
+              )}
             </div>
           </div>
         </aside>

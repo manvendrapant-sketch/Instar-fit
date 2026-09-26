@@ -1,0 +1,508 @@
+/* Instar · offers: the offer builder, offers list and the offer card clients see on the
+   storefront. Tokens and Obsidian+ component classes only. */
+
+/* Offer card (storefront view) */
+.ins-offer-card {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 16px 14px;
+  border-radius: var(--radius-row);
+  background: var(--chip);
+  border: 1px solid var(--line);
+}
+.ins-offer-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+.ins-offer-price {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.ins-offer-name.ph,
+.ins-offer-price.ph {
+  opacity: 0.45;
+}
+.ins-offer-desc {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ins-offer-inc {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+}
+.ins-offer-inc li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+.ins-offer-inc .ins-i {
+  margin-top: 3px;
+  color: var(--ok);
+}
+.ins-offer-cta {
+  margin-top: 12px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.ins-offer-card.compact {
+  padding: 12px 14px;
+}
+.ins-offer-card.compact .ins-offer-price {
+  font-size: 18px;
+}
+.ins-offer-card.compact .ins-offer-cta {
+  height: 32px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.ins-sf-offers {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ins-offer-preview {
+  min-height: 0;
+  padding: 20px 16px;
+}
+.ins-offer-hidden {
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+/* Builder form */
+.ins-offer-section {
+  margin: 0;
+  min-width: 0;
+  border: 0;
+  padding: 22px var(--space-26);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ins-offer-section + .ins-offer-section {
+  border-top: 1px solid var(--line);
+}
+.ins-offer-legend {
+  padding: 0;
+  margin-bottom: 14px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  float: left;
+  width: 100%;
+}
+.ins-offer-legend + * {
+  clear: both;
+}
+.ins-offer-types {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.ins-offer-type {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 16px;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.ins-offer-type:hover {
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+.ins-offer-type input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.ins-offer-type:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ins-offer-type .ins-i {
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--chip);
+}
+.ins-offer-type b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ins-offer-type span {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.ins-offer-type.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--chip));
+}
+.ins-offer-type.on .ins-i {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.ins-offer-price-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.ins-offer-cur {
+  font-family: var(--font-display);
+  font-size: 17px;
+  color: var(--muted);
+}
+.ins-offer-cur-code {
+  padding-right: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ins-select {
+  padding-right: 12px;
+}
+.ins-select select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.ins-select select:focus-visible {
+  outline: none;
+}
+.ins-select option {
+  background: var(--bg);
+  color: var(--text);
+}
+.ins-offer-fee {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--radius-row);
+  background: var(--chip);
+  color: var(--muted);
+}
+.ins-offer-fee .ins-i {
+  margin-top: 2px;
+}
+.ins-offer-fee p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.ins-offer-fee b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ins-offer-inc-edit {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ins-offer-inc-edit:empty {
+  display: none;
+}
+.ins-offer-add {
+  align-self: flex-start;
+  padding: 0 12px;
+  margin-left: -12px;
+}
+.ins-offer-del {
+  margin-left: auto;
+}
+.ins-offer-confirm {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.ins-btn-bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.ins-btn-bad:hover {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+.ins-offers-back {
+  display: inline-block;
+  margin-bottom: 18px;
+  text-decoration: none;
+}
+.ins-offers-back:hover {
+  color: var(--text);
+}
+
+/* Offers list */
+.ins-offers-next {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 20px var(--space-26);
+  margin-bottom: 20px;
+}
+.ins-offers-next h2 {
+  margin: 6px 0 6px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.ins-offers-next p {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 14px;
+  color: var(--muted);
+}
+.ins-offers-note {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.ins-offers-note a,
+.ins-offers-missing a:not(.ins-btn) {
+  color: var(--text);
+  font-weight: 600;
+}
+.ins-offers-empty,
+.ins-offers-missing {
+  padding: 36px var(--space-26);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ins-offers-empty h2,
+.ins-offers-missing h2 {
+  margin: 6px 0 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+.ins-offers-empty p,
+.ins-offers-missing p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.ins-sf-prompt-icon.lg {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-tile);
+}
+.ins-offers-quick {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+.ins-offers-quick-it {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 44px 16px 16px;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.2s;
+}
+.ins-offers-quick-it:hover {
+  border-color: var(--accent);
+}
+.ins-offers-quick-it b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ins-offers-quick-it span {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.ins-offers-quick-it .ins-offers-eg {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ins-offers-quick-it .ins-i {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  color: var(--muted);
+}
+
+.ins-offers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 12px;
+}
+.ins-offers-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: var(--radius-row);
+}
+.ins-offers-row + .ins-offers-row {
+  border-top: 1px solid var(--line);
+}
+.ins-offers-row:hover {
+  background: var(--chip);
+}
+.ins-offers-order {
+  display: flex;
+  flex-direction: column;
+}
+.ins-offers-order .ins-input-btn {
+  width: 28px;
+  height: 24px;
+  border-radius: 8px;
+}
+.ins-offers-order .ins-input-btn .ins-i {
+  width: 16px;
+  height: 16px;
+}
+.ins-offers-order .ins-input-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  background: none;
+}
+.ins-offers-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+.ins-offers-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ins-offers-title b {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.ins-offers-title span {
+  font-size: 13.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ins-offers-row.hidden .ins-offers-title,
+.ins-offers-row.hidden .ins-q-value {
+  opacity: 0.55;
+}
+.ins-offers-vis {
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.ins-offers-vis .ins-i {
+  width: 16px;
+  height: 16px;
+}
+.ins-offers-vis.on {
+  color: var(--text);
+}
+.ins-offers-vis:hover {
+  border-color: var(--text);
+}
+
+@media (max-width: 1100px) {
+  .ins-offer-types,
+  .ins-offers-quick {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .ins-offer-section {
+    padding: 20px 18px;
+  }
+  .ins-offer-price-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ins-offers-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .ins-offers-vis span {
+    display: none;
+  }
+  .ins-offers-vis {
+    padding: 0 8px;
+  }
+  .ins-sf-foot {
+    flex-wrap: wrap;
+  }
+  .ins-offer-del,
+  .ins-offer-confirm {
+    margin-left: 0;
+  }
+}

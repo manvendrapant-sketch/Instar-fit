@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QUEUE } from './data';
 import type { StorefrontDraft } from './storefront';
+import { moveOffer, upsertOffer, type OfferDraft } from './offers';
 
 type Theme = 'dark' | 'light';
 
@@ -27,6 +28,13 @@ interface AppState {
   /** The "create your storefront" popup on Today was closed with "Later". */
   storefrontPromptDismissed: boolean;
   dismissStorefrontPrompt: () => void;
+  /** The coach's offers, in storefront order. Frontend only: kept in this browser. */
+  offers: OfferDraft[];
+  saveOffer: (o: OfferDraft) => void;
+  deleteOffer: (id: string) => void;
+  reorderOffer: (id: string, dir: -1 | 1) => void;
+  /** True once saved state has been read from localStorage (so "not found" isn't just "not loaded"). */
+  hydrated: boolean;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -58,6 +66,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [storefront, setStorefront] = useState<StorefrontDraft | null>(null);
   const [storefrontPromptDismissed, setStorefrontPromptDismissed] = useState(false);
+  const [offers, setOffers] = useState<OfferDraft[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hydrate from localStorage after mount (avoids SSR/client mismatch).
@@ -68,6 +78,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setDone(savedDone);
     setStorefront(readStorage<StorefrontDraft | null>('ins_storefront', null));
     setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
+    setOffers(readStorage<OfferDraft[]>('ins_offers', []));
+    setHydrated(true);
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
   }, []);
@@ -113,6 +125,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     writeStorage('ins_storefront', s);
   }, []);
 
+  // Offers write through to storage on every change (after hydration, so the empty initial
+  // state never overwrites what's saved).
+  useEffect(() => {
+    if (hydrated) writeStorage('ins_offers', offers);
+  }, [offers, hydrated]);
+
+  const saveOffer = useCallback((o: OfferDraft) => setOffers((list) => upsertOffer(list, o)), []);
+  const deleteOffer = useCallback((id: string) => setOffers((list) => list.filter((o) => o.id !== id)), []);
+  const reorderOffer = useCallback((id: string, dir: -1 | 1) => setOffers((list) => moveOffer(list, id, dir)), []);
+
   const dismissStorefrontPrompt = useCallback(() => {
     setStorefrontPromptDismissed(true);
     writeStorage('ins_storefront_prompt_dismissed', true);
@@ -137,6 +159,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       saveStorefront,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
+      offers,
+      saveOffer,
+      deleteOffer,
+      reorderOffer,
+      hydrated,
     }),
     [
       theme,
@@ -153,6 +180,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       saveStorefront,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
+      offers,
+      saveOffer,
+      deleteOffer,
+      reorderOffer,
+      hydrated,
     ],
   );
 
