@@ -5,6 +5,29 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Jest added; tests now required for new functionality
+
+Requested by Manvendra directly, and closes a gap this repo's own process audit flagged earlier
+the same day (the workplan requires "tests for webhook handlers" on every PR; none existed). See
+`CLAUDE.md`'s "Testing (Jest)" section for the setup and the two non-obvious config fixes it took
+(the `@/*` alias needs an explicit `moduleNameMapper` entry for `jest.mock()` calls specifically;
+`jose`, used by the session module, needed next/jest's default `transformIgnorePatterns` rewritten
+in place since it only ever appends to that default rather than letting it be overridden).
+
+**Test environment: `node`, not `jsdom`.** Every test written in this pass targets Route Handlers
+and `lib/` modules — real server code, never the DOM — so `node` is the more accurate and much
+faster fit than the `jsdom` default most Next.js Jest guides default to (those guides assume
+component-rendering tests, which this pass doesn't include). Rejected: `jsdom` project-wide, which
+would have cost real speed for something none of these tests need. React component tests
+(`SignupForm`, `LoginForm`, `TopBar`, `Sidebar`) are consequently still uncovered — that would need
+`jsdom` + React Testing Library added as a separate, deliberate setup, not assumed here.
+
+**Policy, not a one-time cleanup**: new functionality — a route, a `lib/` module, a non-trivial
+component — ships with a test file in the same change from now on. Stated directly by Manvendra,
+recorded here so it isn't treated as optional or renegotiated per task.
+
+---
+
 ## 2026-09-26 — Frontend wired to the login/signup APIs, handle dropped from signup
 
 Requested by Manvendra: pull the `login-feature` frontend branch (Pari/Manvendra's sign-up/log-in

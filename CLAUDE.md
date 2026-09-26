@@ -248,11 +248,10 @@ Checked this repo's actual state against the workplan's own "Working agreement" 
   (`updated-obsidian-plus`) and PR #2 (`feat/commerce-sprint1-foundations`) were each opened and
   merged by the same author within ~9 seconds of each other, zero reviews on either. If this rule
   still matters, it needs enforcing (branch protection requiring review) rather than trusting habit.
-- **"Every PR includes... tests for webhook handlers" is not happening either.** There is no test
-  runner in this repo at all (no jest/vitest, no `*.test.*` file anywhere). The Stripe webhook
-  route shipped in Sprint 1 with no tests, and this branch's login/signup routes didn't add any
-  either. If/when this gets fixed, start with the webhook handler since the workplan calls it out
-  by name.
+- ~~**"Every PR includes... tests for webhook handlers" is not happening either.**~~ **Fixed
+  2026-09-26** — see "Testing (Jest)" below. Every existing route (including the webhook handler
+  the workplan calls out by name) now has a test file, and it's now a standing rule that new
+  functionality ships with tests rather than something to revisit later.
 - The Sprint 1 section above's "not merged anywhere yet... ask before merging/opening a PR" language
   is stale now that PR #2 already merged straight to `main` same-day — `main` is the de facto merge
   target for Commerce branches now, whatever the earlier uncertainty says.
@@ -264,6 +263,51 @@ Checked this repo's actual state against the workplan's own "Working agreement" 
   against the real DB (see above), no Stripe test-mode keys configured, and `AUTH_JWT_SECRET` isn't
   set in Vercel's project env vars yet — signup/login will 500 in production without it.
 
+## Testing (Jest, added 2026-09-26)
+
+Requested by Manvendra directly, and closes the process-audit gap above. `npm test` /
+`npm run test:watch`. 15 suites, 117 tests, ~4s, covering every route handler that existed at the
+time (`/api/auth/{signup,login,logout,me}`, `/api/webhooks/stripe`), `proxy.ts`, every `lib/auth/*`
+and `lib/commerce/money.ts` module, the two lazy-client gotcha files (`lib/stripe/client.ts`,
+`lib/commerce/db.ts`), and the frontend's `lib/auth.ts`. Not covered: React component rendering
+(`SignupForm`/`LoginForm`/`TopBar`/`Sidebar` etc.) — that needs jsdom + React Testing Library, a
+separate setup this pass didn't add; ask if that's wanted too.
+
+**Going forward: any new functionality (a route, a `lib/` module, a non-trivial component) ships
+with a test file in the same change, not as a follow-up.** This is now a standing rule, not
+something to revisit per-task.
+
+- **Convention**: colocated `*.test.ts` next to the file it tests (e.g. `lib/auth/handle.ts` →
+  `lib/auth/handle.test.ts`), not a separate `__tests__/` tree — makes an untested file obvious.
+- **Setup**: `jest.config.ts` uses `next/jest` (loads `next.config.ts`/`.env*`, SWC transform).
+  `testEnvironment: 'node'` project-wide (Route Handlers and `lib/` code never touch the DOM) —
+  add a per-file `/** @jest-environment jsdom */` docblock if a future test needs it instead.
+  `jest.setup.ts` sets a shared `AUTH_JWT_SECRET` for tests; it deliberately leaves
+  `DATABASE_URL`/`STRIPE_SECRET_KEY` unset since `lib/commerce/db.test.ts` /
+  `lib/stripe/client.test.ts` test the missing-env-var throw themselves.
+- **Two non-obvious config fixes, don't re-discover these**:
+  - `moduleNameMapper` needs an explicit `^@/(.*)$` → `<rootDir>/$1` entry. next/jest's SWC
+    transform resolves the `@/*` alias inside ordinary `import` statements at compile time, so
+    those never needed one — but a runtime string like `jest.mock('@/lib/commerce/db')` is just a
+    value, never transformed, and silently fails to resolve without this.
+  - jose (used by `lib/auth/session.ts`) ships pure ESM with no CJS build, so Jest can't
+    `require()` it without help — but next/jest's own `transformIgnorePatterns` default already
+    excludes `node_modules` except a hardcoded allowlist that doesn't include `jose`, and it only
+    ever *appends* whatever you pass into `config`, never lets you override that default. See
+    `jest.config.ts`'s `resolveConfig()` for the fix (rewrites next's own default patterns in place
+    to add `jose` to the allowlist, after next/jest has built its config, instead of fighting the
+    merge).
+  - `server-only` needed no fix — next/jest already maps it to a no-op by default.
+- **Mocking the DB layer**: `jest.mock('@/lib/commerce/db')` + cast `getDb as jest.Mock` to control
+  what `db.query.<table>.findFirst(...)` / `db.insert(...).values(...).returning()` resolve to per
+  test (see any `app/api/auth/*/route.test.ts` for the pattern). Don't try to faithfully mock
+  Drizzle's query builder generally — a fake shaped to exactly what the route under test calls is
+  enough, and simpler to read.
+- Route Handler tests import the route's exported `POST`/`GET` and call it directly with a plain
+  `Request` (or `NextRequest` for `proxy.ts`) — no server, no HTTP round trip. `next/headers`'s
+  `cookies()` needs `jest.mock('next/headers')` (it throws outside a real request context); a
+  Route Handler's own `NextResponse.json(...).cookies` does not.
+
 ### Working conventions to carry into any Commerce code
 
 - Money is always integer cents + ISO currency — never floats.
@@ -274,3 +318,4 @@ Checked this repo's actual state against the workplan's own "Working agreement" 
 - Stripe test mode + test clocks only until the Sprint 6 "hardening & launch" milestone.
 - Branch naming: `feat/commerce-<short-name>` (Manvendra), `feat/storefront-<short-name>` (Pari).
 - Any Stripe client / DB client constructed at module scope must be lazy (see gotcha above).
+- New functionality ships with a test file in the same change — see "Testing (Jest)" above.
