@@ -1,0 +1,282 @@
+/* Instar · signed-out pages (sign up). Built only from tokens + the Obsidian+ component
+   classes: glass panel, pill fields, accent primary button, display/mono type. */
+
+.ins-auth-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.ins-auth {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px 40px 72px;
+}
+.ins-auth-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 460px);
+  gap: 72px;
+  align-items: center;
+}
+
+/* Pitch column */
+.ins-auth-pitch {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+.ins-auth-h {
+  margin: 0;
+  max-width: 13ch;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(40px, 5.2vw, 68px);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+}
+.ins-auth-h em {
+  font-style: normal;
+  color: var(--accent);
+}
+.ins-auth-h span {
+  color: var(--muted);
+}
+.ins-auth-lede {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.ins-auth-points {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ins-auth-points li {
+  display: flex;
+  gap: var(--space-14);
+  align-items: flex-start;
+}
+.ins-auth-points .ins-i {
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--chip);
+}
+.ins-auth-points div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ins-auth-points b {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.ins-auth-points span {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+/* Form card */
+.ins-auth-card {
+  padding: var(--space-28) var(--space-28) var(--space-26);
+}
+.ins-auth-card-h {
+  margin-bottom: 22px;
+}
+.ins-auth-card h2 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+.ins-auth-card-h p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.ins-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Field: label above a pill input */
+.ins-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.ins-field-l {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.ins-input {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--panel-border);
+  background: var(--chip);
+  color: var(--muted);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.ins-input:hover {
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+.ins-input:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ins-input.bad {
+  border-color: var(--bad);
+}
+.ins-input input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+.ins-input input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.ins-input-suffix {
+  padding-right: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ins-input-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.ins-input-btn:hover {
+  color: var(--text);
+  background: var(--chip);
+}
+.ins-field-hint {
+  padding-left: 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ins-field-err {
+  padding-left: 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--bad);
+}
+
+/* Terms */
+.ins-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 2px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ins-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.ins-check.bad input {
+  outline: 1px solid var(--bad);
+  outline-offset: 1px;
+}
+
+.ins-auth-submit {
+  margin-top: 6px;
+  width: 100%;
+  height: 48px;
+  justify-content: center;
+  text-decoration: none;
+}
+.ins-auth-submit:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* Success state */
+.ins-auth-done {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ins-auth-done p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.ins-auth-done p b {
+  color: var(--text);
+  font-weight: 600;
+}
+.ins-auth-tick {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-tile);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+@media (max-width: 1000px) {
+  .ins-auth-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+}
+@media (max-width: 760px) {
+  .ins-auth {
+    padding: 8px 16px 48px;
+    align-items: flex-start;
+  }
+  .ins-auth-points {
+    display: none;
+  }
+  .ins-auth-card {
+    padding: 22px 18px 20px;
+  }
+}
