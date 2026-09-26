@@ -1,6 +1,7 @@
 import { TopBar } from '@/components/TopBar';
 import { Sidebar } from '@/components/Sidebar';
 import { CommandPalette } from '@/components/CommandPalette';
+import { StorefrontPrompt } from '@/components/StorefrontPrompt';
 
 // Coach dashboard chrome: top bar, sidebar directory and command palette.
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <CommandPalette />
+      <StorefrontPrompt />
     </>
   );
 }

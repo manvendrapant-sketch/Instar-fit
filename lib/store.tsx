@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QUEUE } from './data';
+import type { StorefrontDraft } from './storefront';
 
 type Theme = 'dark' | 'light';
 
@@ -20,6 +21,12 @@ interface AppState {
   setNavOpen: (v: boolean) => void;
   cmdOpen: boolean;
   setCmdOpen: (v: boolean) => void;
+  /** The coach's storefront, or null until they create one. Frontend only: kept in this browser. */
+  storefront: StorefrontDraft | null;
+  saveStorefront: (s: StorefrontDraft) => void;
+  /** The "create your storefront" popup on Today was closed with "Later". */
+  storefrontPromptDismissed: boolean;
+  dismissStorefrontPrompt: () => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -49,6 +56,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [storefront, setStorefront] = useState<StorefrontDraft | null>(null);
+  const [storefrontPromptDismissed, setStorefrontPromptDismissed] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hydrate from localStorage after mount (avoids SSR/client mismatch).
@@ -57,6 +66,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setThemeState(readStorage<Theme>('ins_theme', 'dark'));
     setDone(savedDone);
+    setStorefront(readStorage<StorefrontDraft | null>('ins_storefront', null));
+    setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
   }, []);
@@ -97,6 +108,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setDone([]);
   }, []);
 
+  const saveStorefront = useCallback((s: StorefrontDraft) => {
+    setStorefront(s);
+    writeStorage('ins_storefront', s);
+  }, []);
+
+  const dismissStorefrontPrompt = useCallback(() => {
+    setStorefrontPromptDismissed(true);
+    writeStorage('ins_storefront_prompt_dismissed', true);
+  }, []);
+
   const value = useMemo(
     () => ({
       theme,
@@ -112,8 +133,27 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setNavOpen,
       cmdOpen,
       setCmdOpen,
+      storefront,
+      saveStorefront,
+      storefrontPromptDismissed,
+      dismissStorefrontPrompt,
     }),
-    [theme, setTheme, done, openId, complete, reset, toastMessage, toast, navOpen, cmdOpen],
+    [
+      theme,
+      setTheme,
+      done,
+      openId,
+      complete,
+      reset,
+      toastMessage,
+      toast,
+      navOpen,
+      cmdOpen,
+      storefront,
+      saveStorefront,
+      storefrontPromptDismissed,
+      dismissStorefrontPrompt,
+    ],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Icon, type IconName } from '@/lib/icons';
 import { SPACES, QUEUE } from '@/lib/data';
 import { useAppState } from '@/lib/store';
+import { STOREFRONT_PATH } from '@/lib/storefront';
 
 const SPACE_COUNTS: Record<string, string> = {
   roster: '36',
@@ -15,7 +16,7 @@ const SPACE_COUNTS: Record<string, string> = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { done, setNavOpen } = useAppState();
+  const { done, setNavOpen, storefront } = useAppState();
   const left = QUEUE.length - done.length;
 
   const close = () => setNavOpen(false);
@@ -42,13 +43,32 @@ export function Sidebar() {
                 {space.title}
                 <span aria-hidden="true">{spaceActive ? '•' : ''}</span>
               </div>
-              {space.tiles.map((tile) => (
-                <Link key={tile.id} href={`/${space.id}#${tile.id}`} className="ins-nav" onClick={close}>
-                  <Icon name={tile.id as IconName} />
-                  {tile.title}
-                  {SPACE_COUNTS[tile.id] && <span className="n">{SPACE_COUNTS[tile.id]}</span>}
-                </Link>
-              ))}
+              {space.tiles.map((tile) => {
+                if (tile.id === 'storefront') {
+                  const on = pathname === STOREFRONT_PATH;
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={STOREFRONT_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      data-nav="storefront"
+                      onClick={close}
+                    >
+                      <Icon name="storefront" />
+                      {tile.title}
+                      {!storefront && <span className="ins-nav-setup">Set up</span>}
+                    </Link>
+                  );
+                }
+                return (
+                  <Link key={tile.id} href={`/${space.id}#${tile.id}`} className="ins-nav" onClick={close}>
+                    <Icon name={tile.id as IconName} />
+                    {tile.title}
+                    {SPACE_COUNTS[tile.id] && <span className="n">{SPACE_COUNTS[tile.id]}</span>}
+                  </Link>
+                );
+              })}
             </div>
           );
         })}
