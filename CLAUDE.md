@@ -318,7 +318,15 @@ this needs a real signup attempt against the live site to know for sure, same as
 
 ### Still open / next up
 
-- Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
+- Pari's side (frontend only, all mocked in `localStorage` via `lib/store.tsx`, no API routes): storefront
+  editor `/business/storefront` (`lib/storefront.ts`), offer builder `/business/offers` (`lib/offers.ts`),
+  Connect payouts `/business/payouts` (`lib/payouts.ts`, with dashed "prototype controls"), and on
+  `feat/storefront-public` the public page `/[handle]` (`app/(public)/[handle]`, `lib/publicStorefront.ts`)
+  plus Publish, locked until payouts are ready. Until `GET /api/coach/[handle]` exists, `/[handle]` can
+  only show the coach's own page from their browser or the demo coach `maya-test`; anyone else sees
+  "not found". Storefront links are written `instar.co/<handle>` (path, matching `/[coachHandle]`).
+  Fields the UI collects that `lib/commerce/types.ts` doesn't carry yet: storefront specialties,
+  coaching mode, location, time zone; offer includes, program weeks, session minutes, visibility.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This

@@ -59,7 +59,7 @@ describe('validateStorefront', () => {
   });
 
   it('names the taken handle', () => {
-    expect(validateStorefront({ ...valid, handle: 'admin' }).handle).toBe('admin.instar.co is taken. Try another.');
+    expect(validateStorefront({ ...valid, handle: 'admin' }).handle).toBe('instar.co/admin is taken. Try another.');
   });
 
   it('requires a display name that is not just whitespace', () => {

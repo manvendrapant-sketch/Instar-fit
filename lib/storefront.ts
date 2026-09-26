@@ -111,6 +111,11 @@ const HANDLE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
 // or are already taken in the seed data.
 const TAKEN_HANDLES = new Set(['instar', 'admin', 'api', 'app', 'help', 'support', 'login', 'signup', 'business', 'clients', 'grow']);
 
+/** How a storefront link is written in the UI. The page itself lives at /<handle> (the workplan's /[coachHandle]). */
+export function storefrontLink(handle: string) {
+  return `instar.co/${handle || 'yourname'}`;
+}
+
 export function normalizeHandle(raw: string) {
   return raw.trim().toLowerCase().replace(/\s+/g, '-');
 }
@@ -127,7 +132,7 @@ export function validateStorefront(d: StorefrontDraft): Partial<Record<Storefron
   const errors: Partial<Record<StorefrontField, string>> = {};
   const status = handleStatus(d.handle);
   if (status === 'empty' || status === 'invalid') errors.handle = 'Use 3–30 lowercase letters, numbers or hyphens.';
-  else if (status === 'taken') errors.handle = `${d.handle}.instar.co is taken. Try another.`;
+  else if (status === 'taken') errors.handle = `${storefrontLink(d.handle)} is taken. Try another.`;
   if (!d.displayName.trim()) errors.displayName = 'Add the name clients will see.';
   if ((d.bio ?? '').length > BIO_MAX) errors.bio = `Keep it under ${BIO_MAX} characters.`;
   if (d.specialties.length === 0) errors.specialties = 'Pick at least one, so clients know who you coach.';

@@ -1,13 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
 import { OfferCard } from '@/components/OfferCard';
-import { OFFERS_PATH } from '@/lib/offers';
-import { isPayoutsReady, PAYOUTS_PATH } from '@/lib/payouts';
+import { StorefrontPublish } from '@/components/StorefrontPublish';
 import {
   addSpecialty,
   AVATAR_MAX_BYTES,
@@ -19,6 +17,7 @@ import {
   locationLine,
   LOCATION_MAX,
   normalizeHandle,
+  storefrontLink,
   SPECIALTIES,
   SPECIALTIES_MAX,
   SPECIALTY_MAX_LEN,
@@ -36,10 +35,8 @@ function initials(name: string) {
 }
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
-  const { storefront, saveStorefront, toast, offers, payouts } = useAppState();
+  const { storefront, saveStorefront, offers } = useAppState();
   const shownOffers = offers.filter((o) => o.visible);
-  const hasOffer = offers.length > 0;
-  const payoutsReady = isPayoutsReady(payouts);
   // Time zone starts as a fixed default so server and client render the same markup; the
   // browser's own zone replaces it after mount.
   const [draft, setDraft] = useState<StorefrontDraft>(() => withStorefrontDefaults({ ...defaults, timeZone: DEFAULT_TIME_ZONE }));
@@ -167,10 +164,10 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
                   status === 'available' ? (
                     <span className="ins-sf-ok">
                       <Icon name="check" className="ins-i sm" />
-                      {draft.handle}.instar.co is available
+                      {storefrontLink(draft.handle)} is available
                     </span>
                   ) : status === 'taken' ? (
-                    <span className="ins-sf-taken">{draft.handle}.instar.co is taken. Try another.</span>
+                    <span className="ins-sf-taken">{storefrontLink(draft.handle)} is taken. Try another.</span>
                   ) : (
                     'Lowercase letters, numbers and hyphens. This goes in your Instagram bio.'
                   )
@@ -374,69 +371,7 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
             </div>
           </form>
         ) : (
-          <section className="ins-panel ins-sf-done ins-in d2" aria-live="polite">
-            <span className="ins-sf-tick" aria-hidden="true">
-              <Icon name="check" />
-            </span>
-            <span className="ins-label">Storefront created</span>
-            <h2>
-              <span className="ins-num">{storefront!.handle}.instar.co</span> is yours.
-            </h2>
-            <p>
-              {!hasOffer
-                ? 'It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram bio.'
-                : !payoutsReady
-                  ? 'It isn’t public yet. Connect payouts, then publish it and put the link in your Instagram bio.'
-                  : 'You’re ready to publish. Publishing is coming in the next update.'}
-            </p>
-            <ol className="ins-sf-steps">
-              <li className="done">
-                <Icon name="check" className="ins-i sm" />
-                Create your storefront
-              </li>
-              {hasOffer ? (
-                <li className="done">
-                  <Icon name="check" className="ins-i sm" />
-                  Add your first offer
-                </li>
-              ) : (
-                <li>
-                  <span className="ins-sf-step-n">2</span>
-                  Add your first offer
-                </li>
-              )}
-              {payoutsReady ? (
-                <li className="done">
-                  <Icon name="check" className="ins-i sm" />
-                  Connect payouts
-                </li>
-              ) : (
-                <li>
-                  <span className="ins-sf-step-n">3</span>
-                  <Link href={PAYOUTS_PATH}>Connect payouts to publish</Link>
-                </li>
-              )}
-            </ol>
-            <div className="ins-actions">
-              <Link href={hasOffer ? OFFERS_PATH : `${OFFERS_PATH}/new`} className={`ins-btn ${hasOffer ? '' : 'go'}`}>
-                {hasOffer ? 'Manage offers' : 'Add your first offer'}
-                {!hasOffer && <Icon name="arrow" />}
-              </Link>
-              <button type="button" className="ins-btn" onClick={() => setEditing(true)}>
-                Edit details
-              </button>
-              <button
-                type="button"
-                className="ins-btn quiet"
-                onClick={() => {
-                  navigator.clipboard?.writeText(`${storefront!.handle}.instar.co`).catch(() => {});
-                  toast(`Copied ${storefront!.handle}.instar.co`);
-                }}
-              >
-                Copy link
-              </button>
-            </div>
-          </section>
+          <StorefrontPublish onEdit={() => setEditing(true)} />
         )}
 
         <aside className="ins-sf-preview ins-in d3" aria-label="Preview of your storefront">
@@ -444,7 +379,7 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
           <div className="ins-sf-phone">
             <div className="ins-sf-url">
               <Icon name="lock" className="ins-i sm" />
-              <span className="ins-num">{shown.handle || 'yourname'}.instar.co</span>
+              <span className="ins-num">{storefrontLink(shown.handle)}</span>
             </div>
             <div className="ins-sf-page">
               <span className="ins-sf-avatar" aria-hidden="true">

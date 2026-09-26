@@ -35,6 +35,9 @@ interface AppState {
   saveOffer: (o: OfferDraft) => void;
   deleteOffer: (id: string) => void;
   reorderOffer: (id: string, dir: -1 | 1) => void;
+  /** The storefront is public at /<handle>. Frontend only: kept in this browser. */
+  storefrontPublished: boolean;
+  setStorefrontPublished: (v: boolean) => void;
   /** Stripe Connect onboarding status. Mocked and kept in this browser until the status API exists. */
   payouts: OnboardingStatus;
   setPayouts: (s: OnboardingStatus) => void;
@@ -74,6 +77,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [offers, setOffers] = useState<OfferDraft[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [payouts, setPayoutsState] = useState<OnboardingStatus>(NOT_STARTED);
+  const [storefrontPublished, setPublishedState] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Hydrate from localStorage after mount (avoids SSR/client mismatch).
@@ -87,6 +91,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
     setOffers(readStorage<OfferDraft[]>('ins_offers', []));
     setPayoutsState(readStorage<OnboardingStatus>('ins_payouts', NOT_STARTED));
+    setPublishedState(readStorage<boolean>('ins_storefront_published', false));
     setHydrated(true);
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
@@ -143,6 +148,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const deleteOffer = useCallback((id: string) => setOffers((list) => list.filter((o) => o.id !== id)), []);
   const reorderOffer = useCallback((id: string, dir: -1 | 1) => setOffers((list) => moveOffer(list, id, dir)), []);
 
+  const setStorefrontPublished = useCallback((v: boolean) => {
+    setPublishedState(v);
+    writeStorage('ins_storefront_published', v);
+  }, []);
+
   const setPayouts = useCallback((s: OnboardingStatus) => {
     setPayoutsState(s);
     writeStorage('ins_payouts', s);
@@ -178,6 +188,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       reorderOffer,
       payouts,
       setPayouts,
+      storefrontPublished,
+      setStorefrontPublished,
       hydrated,
     }),
     [
@@ -201,6 +213,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       reorderOffer,
       payouts,
       setPayouts,
+      storefrontPublished,
+      setStorefrontPublished,
       hydrated,
     ],
   );
