@@ -3,7 +3,7 @@
 import { useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Icon, type IconName } from '@/lib/icons';
 
-// Shared pill fields for the signed-out forms (sign up, log in, storefront setup).
+// Shared pill fields for the signed-out forms (sign up, log in).
 
 export function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
@@ -20,10 +20,9 @@ interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'na
   icon: IconName;
   error?: string;
   hint?: ReactNode;
-  suffix?: ReactNode;
 }
 
-export function TextField({ name, label, icon, error, hint, suffix, ...input }: TextFieldProps) {
+export function TextField({ name, label, icon, error, hint, ...input }: TextFieldProps) {
   const errId = `${name}-err`;
   const hintId = `${name}-hint`;
   return (
@@ -32,7 +31,6 @@ export function TextField({ name, label, icon, error, hint, suffix, ...input }: 
       <span className={`ins-input ${error ? 'bad' : ''}`}>
         <Icon name={icon} />
         <input name={name} aria-invalid={!!error} aria-describedby={error ? errId : hint ? hintId : undefined} {...input} />
-        {suffix && <span className="ins-input-suffix">{suffix}</span>}
       </span>
       {error ? (
         <FieldError id={errId} message={error} />

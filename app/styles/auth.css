@@ -170,13 +170,6 @@
   color: var(--muted);
   opacity: 0.7;
 }
-.ins-input-suffix {
-  padding-right: 10px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
 .ins-input-btn {
   width: 34px;
   height: 34px;
@@ -285,15 +278,11 @@
   }
 }
 
-/* Single-card pages (log in, storefront setup) */
+/* Single-card page (log in) */
 .ins-auth-solo {
   width: 100%;
   max-width: 460px;
   margin: 0 auto;
-}
-.ins-auth-card-h .ins-label {
-  display: block;
-  margin-bottom: 10px;
 }
 .ins-auth-alt {
   margin: 18px 0 0;

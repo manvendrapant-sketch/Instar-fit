@@ -21,7 +21,7 @@ export function SignupForm() {
         <span className="ins-label">Account created</span>
         <h2>Welcome to Instar, {state.firstName}.</h2>
         <p>
-          Log in with <b>{values.email}</b> to set up your storefront.
+          Log in with <b>{values.email}</b> to get started.
         </p>
         <Link href="/login" className="ins-btn go ins-auth-submit">
           Log in
@@ -35,7 +35,7 @@ export function SignupForm() {
     <section className="ins-panel ins-auth-card ins-in d2" aria-labelledby="signup-title">
       <div className="ins-auth-card-h">
         <h2 id="signup-title">Create your coach account</h2>
-        <p>Takes about a minute. You’ll set up your storefront after you log in.</p>
+        <p>Takes about a minute.</p>
       </div>
 
       <form action={formAction} noValidate className="ins-auth-form">

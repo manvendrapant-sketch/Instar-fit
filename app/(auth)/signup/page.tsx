@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 const POINTS: { icon: IconName; title: string; body: string }[] = [
-  { icon: 'storefront', title: 'Your own storefront', body: 'Set it up after you log in: offers, checkout and a link to share.' },
+  { icon: 'storefront', title: 'Your own storefront', body: 'Offers, checkout and a link to share with clients.' },
   { icon: 'today', title: 'A queue, not a dashboard', body: 'Each morning, the check-ins, leads and payments that need you.' },
   { icon: 'clientspace', title: 'Drafts in your voice', body: 'Instar writes the message. Nothing goes out until you approve it.' },
 ];
