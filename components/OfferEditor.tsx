@@ -356,6 +356,10 @@ export function OfferEditor(props: Props) {
               {!draft.visible && <span className="ins-offer-hidden">Hidden from clients</span>}
             </div>
           </div>
+          <p className="ins-sf-preview-note">
+            Preview only. On your live storefront, this button opens checkout: clients see your price and the service fee,
+            then pay by card, Apple Pay or Google Pay.
+          </p>
         </aside>
       </div>
     </>
