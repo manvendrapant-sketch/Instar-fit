@@ -318,9 +318,20 @@ this needs a real signup attempt against the live site to know for sure, same as
 
 ### Still open / next up
 
-- Pari's Sprint 1 frontend (storefront skeleton at `/[coachHandle]`) hasn't started in this repo
-  yet — the backend APIs it and the rest of her workplan need now exist, see "Storefront APIs"
-  below.
+- Pari's public storefront page `/[handle]` (`app/(public)/[handle]/`, merged from
+  `feat/storefront-public`): server-rendered from `GET /api/coach/[handle]` via
+  `lib/publicStorefront.ts`'s `loadPublicProfile` (absolute URL from `lib/publicOrigin.ts`,
+  deduped per request with React `cache` in `load.ts` so page + `generateMetadata` +
+  `opengraph-image.tsx` share one fetch). Unknown/unpublished → "no coach here" (noindex); API
+  failure → "didn't load"; the signed-in owner of an unpublished page gets `OwnerPreview`, built
+  from their own profile + active offers. Offer buttons toast "checkout coming soon" until Sprint 3.
+  The storefront page's publish card is `components/StorefrontPublish.tsx` (why-it's-locked steps,
+  "You're live" + copy link, unpublish) on top of `GET/PATCH /api/storefront`; the server's
+  `canPublish` decides, the steps only explain. Storefront links are written `instar.co/<handle>`.
+- **Signed-out pages skip coach-only fetches**: `app/layout.tsx` passes `signedIn` (session cookie
+  present) into `AppStateProvider`, which otherwise fired `/api/offers`, `/api/coach/*`,
+  `/api/storefront` on every page, including `/login`, `/signup` and the public storefront, where
+  they 401 and toast an error at a visitor who isn't a coach.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This

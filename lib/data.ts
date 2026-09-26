@@ -252,7 +252,7 @@ export const COMMANDS: Command[] = [
   ),
   { group: 'Actions', label: "Review Leah’s check-in", hint: 'Queue', href: '/' },
   { group: 'Actions', label: 'Move Thursday check-ins to Friday', hint: 'Schedule', toast: 'Moved 4 check-ins to Friday and told those clients' },
-  { group: 'Actions', label: 'Copy storefront link', hint: 'Storefront', toast: 'Copied maya.instar.co' },
+  { group: 'Actions', label: 'Copy storefront link', hint: 'Storefront', toast: 'Copied instar.co/maya' },
   { group: 'Actions', label: 'Create a new offer', hint: 'Business', href: '/business' },
   { group: 'Actions', label: 'Send a broadcast to all clients', hint: 'Clients', toast: 'Broadcast composer opens' },
   { group: 'Actions', label: 'Draft 5 hooks for this week', hint: 'Grow', toast: 'Five hooks drafted from your top reels' },

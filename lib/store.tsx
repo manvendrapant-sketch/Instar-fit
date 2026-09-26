@@ -70,7 +70,12 @@ function writeStorage<T>(key: string, value: T) {
   }
 }
 
-export function AppStateProvider({ children }: { children: React.ReactNode }) {
+/**
+ * `signedIn` comes from the root layout (is there a session cookie at all). Signed-out pages —
+ * log in, sign up, a coach's public storefront — skip the coach-only fetches below, which would
+ * otherwise 401 and toast an error at someone who isn't a coach.
+ */
+export function AppStateProvider({ children, signedIn = true }: { children: React.ReactNode; signedIn?: boolean }) {
   const [theme, setThemeState] = useState<Theme>('dark');
   const [done, setDone] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(QUEUE[0]?.id ?? null);
@@ -127,6 +132,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
 
+    if (!signedIn) {
+      setHydrated(true);
+      return;
+    }
     Promise.all([refreshOffers(), refreshPayouts(), refreshStorefront(), refreshStorefrontStatus()]).finally(() => {
       setHydrated(true);
     });

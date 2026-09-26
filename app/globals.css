@@ -5,6 +5,7 @@
 @import './styles/storefront.css';
 @import './styles/offers.css';
 @import './styles/payouts.css';
+@import './styles/public.css';
 
 * {
   box-sizing: border-box;

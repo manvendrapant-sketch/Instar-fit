@@ -1,8 +1,24 @@
 import { Icon } from '@/lib/icons';
-import { formatOfferPrice, OFFER_TYPES, type OfferDraft } from '@/lib/offers';
+import type { OfferSummary } from '@/lib/commerce/types';
+import { formatOfferPrice, OFFER_TYPES } from '@/lib/offers';
 
-/** An offer as clients see it on the storefront. Used in the storefront preview and the builder. */
-export function OfferCard({ offer, compact = false }: { offer: OfferDraft; compact?: boolean }) {
+export function offerCta(type: OfferSummary['type']) {
+  return type === 'session' ? 'Book' : type === 'subscription' ? 'Start' : 'Get the program';
+}
+
+/**
+ * An offer as clients see it on the storefront. In the coach's previews the button is decorative;
+ * on the public page `onSelect` makes it a real button that starts checkout.
+ */
+export function OfferCard({
+  offer,
+  compact = false,
+  onSelect,
+}: {
+  offer: OfferSummary;
+  compact?: boolean;
+  onSelect?: (offer: OfferSummary) => void;
+}) {
   const hasPrice = offer.price.unitAmountCents > 0;
   return (
     <article className={`ins-offer-card ${compact ? 'compact' : ''}`}>
@@ -22,9 +38,15 @@ export function OfferCard({ offer, compact = false }: { offer: OfferDraft; compa
           ))}
         </ul>
       )}
-      <span className="ins-offer-cta" aria-hidden="true">
-        {offer.type === 'session' ? 'Book' : offer.type === 'subscription' ? 'Start' : 'Get the program'}
-      </span>
+      {onSelect ? (
+        <button type="button" className="ins-offer-cta" onClick={() => onSelect(offer)} aria-label={`${offerCta(offer.type)}: ${offer.name}`}>
+          {offerCta(offer.type)}
+        </button>
+      ) : (
+        <span className="ins-offer-cta" aria-hidden="true">
+          {offerCta(offer.type)}
+        </span>
+      )}
     </article>
   );
 }
