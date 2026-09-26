@@ -103,7 +103,9 @@ export function OfferEditor(props: Props) {
     const finalized = finalizeOffer(draft, priceInput);
     setSaving(true);
     const result =
-      props.mode === 'new' ? await createOfferApi(toCreateRequest(finalized)) : await updateOfferApi(finalized.id, toUpdateRequest(finalized));
+      props.mode === 'new'
+        ? await createOfferApi(toCreateRequest(finalized))
+        : await updateOfferApi(finalized.id, toUpdateRequest(finalized, existing));
     setSaving(false);
 
     if (!result.ok) {

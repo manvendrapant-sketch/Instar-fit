@@ -187,16 +187,24 @@ export function toCreateRequest(o: OfferDraft): CreateOfferRequest {
   };
 }
 
-/** The offer builder always submits the whole draft, so this sends every field rather than a true partial patch. */
-export function toUpdateRequest(o: OfferDraft): UpdateOfferRequest {
+/**
+ * The offer builder submits the whole draft, so this sends every field except `price` — that one
+ * is included only if it actually differs from `original` (the offer as loaded). Replacing a price
+ * always creates a new Stripe Price on the backend (Stripe Prices are immutable), which is wasted
+ * work on every trivial rename if sent unconditionally, and outright fails for any offer whose
+ * Stripe product belongs to a different Stripe account/key than the one currently configured
+ * (e.g. after rotating STRIPE_SECRET_KEY) — a plain rename shouldn't be blocked by that.
+ */
+export function toUpdateRequest(o: OfferDraft, original?: OfferDraft): UpdateOfferRequest {
+  const priceChanged = !original || JSON.stringify(o.price) !== JSON.stringify(original.price);
   return {
     name: o.name,
     description: o.description,
     active: o.active,
-    price: o.price,
     includes: o.includes,
     lengthWeeks: o.lengthWeeks,
     sessionMinutes: o.sessionMinutes,
+    ...(priceChanged ? { price: o.price } : {}),
   };
 }
 

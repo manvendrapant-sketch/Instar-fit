@@ -705,3 +705,40 @@ no-write-when-unchanged, and fallback-on-Stripe-error.
   the moment Stripe finishes reviewing them" without the coach happening to reload the page.
 - `db:seed` still hasn't been run anywhere (same port-443-only sandbox restriction as every other
   DB operation in this file).
+
+### Two more bugs found live-testing after the incident above (2026-09-26)
+
+**"Created a second account, but the app kept showing the first account's data."** Root cause:
+this class of bug had already been found and fixed once, for login (`LoginForm.tsx` — `router.
+push('/'); router.refresh();`, with a comment explaining why: Next's client Router Cache can
+serve a stale pre-login RSC render of a route unless explicitly told to refetch) and for logout
+(`Sidebar.tsx`, same pattern) — but not for signup's own post-success screen. `SignupForm.tsx`'s
+"Account created" card linked to `/login` with a plain `<Link>`; since signup already sets the
+session cookie, `proxy.ts`'s already-signed-in redirect would immediately bounce that to `/`
+anyway — but without a `router.refresh()`, the client could still serve a cached "/" render from
+*before* the account switch. Fixed: that card now has a "Continue" button doing the same
+`router.push('/'); router.refresh();` as login/logout, skipping the pointless `/login` hop
+entirely (signup already established the session — the card was only ever routing through
+`/login` to lean on the proxy redirect, not because credentials were actually needed again).
+**If a future auth-adjacent screen is added, it needs this same pair of calls** — there's no
+single shared guard for it yet, just three call sites now following the same commented pattern.
+
+**"The edit functionality for offers also does not work."** `lib/offers.ts`'s `toUpdateRequest`
+sent every field on every edit, including `price` — unconditionally, even when only the name or
+description changed. The backend treats a present `price` as "replace it": Stripe Prices are
+immutable, so it always calls `stripe.prices.create()` on the offer's `stripeProductId` before
+touching anything else. Two problems from that: wasted Stripe calls on trivial renames, and a hard
+failure for any offer whose `stripeProductId` belongs to a Stripe account/key different from
+whatever's currently configured — exactly the situation this same day's `STRIPE_SECRET_KEY`
+rotation (original test mode → "Instar Sandbox") created for every offer made before the swap.
+Fixed: `toUpdateRequest(o, original?)` now takes the offer as originally loaded and only includes
+`price` in the request when it actually differs from `original.price`; `OfferEditor.tsx` passes
+its already-available `existing` offer as that second argument. A pure rename no longer touches
+Stripe at all. (An offer that genuinely needs its *price* changed, and whose product predates a
+key rotation, will still hit this — recreating that specific offer is the practical workaround
+for test data; nothing reconciles orphaned cross-account Stripe products automatically.)
+
+Both shipped with tests — `lib/offers.test.ts` gained cases for `toUpdateRequest`'s
+price-inclusion logic (no `original` → sends price; unchanged → omitted; changed → included).
+`SignupForm`'s button change has no test, same as every other component in this repo (component
+rendering tests still aren't set up — see "Testing (Jest)" above).

@@ -207,6 +207,24 @@ describe('toCreateRequest / toUpdateRequest', () => {
       sessionMinutes: null,
     });
   });
+
+  it('sends price when there is no original to compare against', () => {
+    expect(toUpdateRequest(coaching())).toHaveProperty('price');
+  });
+
+  it('omits price when it matches the original — editing an unrelated field must not touch Stripe', () => {
+    const original = coaching();
+    const edited = { ...original, name: 'Renamed' };
+    const result = toUpdateRequest(edited, original);
+    expect(result).not.toHaveProperty('price');
+    expect(result.name).toBe('Renamed');
+  });
+
+  it('includes price when it actually changed from the original', () => {
+    const original = coaching();
+    const edited = { ...original, price: { ...original.price, unitAmountCents: 29900 } };
+    expect(toUpdateRequest(edited, original)).toHaveProperty('price', edited.price);
+  });
 });
 
 describe('offer API wrappers', () => {
