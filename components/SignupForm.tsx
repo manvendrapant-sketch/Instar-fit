@@ -4,19 +4,32 @@ import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { FieldError, PasswordField, TextField } from '@/components/AuthFields';
-import { hasErrors, readSignup, validateSignup, type FieldErrors, type SignupField } from '@/lib/auth';
+import { hasErrors, readSignup, signup, validateSignup, type FieldErrors, type SignupField } from '@/lib/auth';
+import { useAppState } from '@/lib/store';
 
 export function SignupForm() {
+  const { toast } = useAppState();
   const [errors, setErrors] = useState<FieldErrors<SignupField>>({});
+  const [pending, setPending] = useState(false);
   const [created, setCreated] = useState<{ firstName: string; email: string } | null>(null);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const values = readSignup(new FormData(e.currentTarget));
     const next = validateSignup(values);
     setErrors(next);
-    // Frontend only: nothing is saved; a valid form just shows the confirmation.
-    if (!hasErrors(next)) setCreated({ firstName: values.name.split(/\s+/)[0], email: values.email });
+    if (hasErrors(next)) return;
+
+    setPending(true);
+    const result = await signup(values);
+    setPending(false);
+
+    if (result.ok) {
+      setCreated({ firstName: values.name.split(/\s+/)[0], email: values.email });
+      return;
+    }
+    setErrors(result.fieldErrors);
+    if (!hasErrors(result.fieldErrors)) toast(result.message);
   }
 
   if (created) {
@@ -92,8 +105,8 @@ export function SignupForm() {
         </label>
         <FieldError id="terms-err" message={errors.terms} />
 
-        <button type="submit" className="ins-btn go ins-auth-submit">
-          Create account
+        <button type="submit" className="ins-btn go ins-auth-submit" disabled={pending} aria-busy={pending}>
+          {pending ? 'Creating account…' : 'Create account'}
           <Icon name="arrow" />
         </button>
       </form>

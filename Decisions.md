@@ -5,6 +5,85 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Jest added; tests now required for new functionality
+
+Requested by Manvendra directly, and closes a gap this repo's own process audit flagged earlier
+the same day (the workplan requires "tests for webhook handlers" on every PR; none existed). See
+`CLAUDE.md`'s "Testing (Jest)" section for the setup and the two non-obvious config fixes it took
+(the `@/*` alias needs an explicit `moduleNameMapper` entry for `jest.mock()` calls specifically;
+`jose`, used by the session module, needed next/jest's default `transformIgnorePatterns` rewritten
+in place since it only ever appends to that default rather than letting it be overridden).
+
+**Test environment: `node`, not `jsdom`.** Every test written in this pass targets Route Handlers
+and `lib/` modules — real server code, never the DOM — so `node` is the more accurate and much
+faster fit than the `jsdom` default most Next.js Jest guides default to (those guides assume
+component-rendering tests, which this pass doesn't include). Rejected: `jsdom` project-wide, which
+would have cost real speed for something none of these tests need. React component tests
+(`SignupForm`, `LoginForm`, `TopBar`, `Sidebar`) are consequently still uncovered — that would need
+`jsdom` + React Testing Library added as a separate, deliberate setup, not assumed here.
+
+**Policy, not a one-time cleanup**: new functionality — a route, a `lib/` module, a non-trivial
+component — ships with a test file in the same change from now on. Stated directly by Manvendra,
+recorded here so it isn't treated as optional or renegotiated per task.
+
+---
+
+## 2026-09-26 — Frontend wired to the login/signup APIs, handle dropped from signup
+
+Requested by Manvendra: pull the `login-feature` frontend branch (Pari/Manvendra's sign-up/log-in
+pages, built frontend-only pending a real backend) and make it work end to end against the APIs
+below.
+
+**Handle is no longer a signup input.** The frontend's signup form only ever asked for a name —
+adding a handle field would have meant redesigning an already-built, approved form for a detail
+(the storefront URL slug) a new coach has no reason to think about at signup. Instead the handle is
+now derived server-side from `displayName` (slugify, disambiguate with `-2`, `-3`, ... on
+collision — `lib/auth/handle.ts`). Rejected: asking for it up front (extra friction, no clear
+benefit at signup time) and defaulting to an opaque id (bad for a public storefront URL). A coach
+can rename their handle later once there's a settings page for it — not built yet.
+
+**Session JWT gained `displayName`.** It was already carrying `coachId`/`email`/`handle`; adding
+the display name too means the dashboard chrome (top bar, sidebar) can render the signed-in coach's
+name without a DB round trip on every page load. None of these are secret, so this cost nothing.
+
+**Route protection is `proxy.ts`, not a client-side check.** Next.js 16 renamed `middleware.ts` to
+`proxy.ts` (functionally identical, see `AGENTS.md`) — a session cookie is verified there before any
+of `/`, `/clients`, `/grow`, `/business` render, and the same check redirects an already-signed-in
+visitor away from `/login`/`/signup`. Rejected: gating in the `(app)` layout alone, which would
+still flash protected content before redirecting on the client, or checking auth per-page, which
+doesn't scale as more protected routes get added.
+
+## 2026-09-26 — Coach login/signup APIs added (branch `feat/commerce-login-signup`)
+
+Requested by Manvendra: real login/signup endpoints, backed by the now-connected Supabase
+Postgres instance, with response messages the frontend can show directly.
+
+**Who logs in**: coaches only, for now. The `coaches` table is the only account-holding table in
+the schema (per the RLS entry below, "this repo has no auth at all" until now); clients are
+Stripe-customer records tied to a coach, not login accounts — self-serve client auth is storefront
+scope (Pari's workplan), not this change.
+
+**Mechanism**:
+- `coaches.password_hash` (new column, migration `0002_dazzling_risque.sql`) — bcrypt (`bcryptjs`,
+  12 rounds), never the plaintext password. See `lib/auth/password.ts`.
+- Sessions are a signed JWT (`jose`, HS256, 7-day expiry) in an `httpOnly`/`sameSite=lax` cookie
+  (`instar_session`) — not a DB-backed session table. Signed with `AUTH_JWT_SECRET` (new env var,
+  see `.env.example`). Simplest thing that works for Sprint 1; revisit for revocable sessions
+  (a sessions table, or short-lived tokens + refresh) once there's a reason to invalidate a
+  session before its cookie expires.
+- Routes: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/me`. All return the shared `{ success, message, data | (code, fields) }` envelope
+  in `lib/api/response.ts` so the frontend has one shape to branch on across every endpoint, not
+  just these four.
+- No email verification, password reset, or rate limiting yet — out of scope for "login/signup
+  APIs" as asked; flag if any of these should land before this goes live.
+
+**Same sandbox-can't-reach-Postgres constraint hit again**: migration `0002` was generated here
+but applied via the same hand-off-SQL workaround as `0000`/`0001` (see that section below) — this
+session confirmed the same thing again (TCP to the Supabase pooler's `:6543` times out, only `:443`
+egresses). The combined hand-off SQL was written for the user to paste into Supabase's SQL Editor,
+not committed to the repo.
+
 ## 2026-09-26 — Row Level Security enabled on all commerce tables, no policies yet
 
 Made by Manvendra. All 11 Sprint-1 tables now have RLS turned on (`.enableRLS()` in

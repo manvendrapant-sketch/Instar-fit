@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { initialsFor, logout } from '@/lib/auth';
 import { Icon, type IconName } from '@/lib/icons';
 import { SPACES, QUEUE } from '@/lib/data';
 import { useAppState } from '@/lib/store';
@@ -14,12 +16,22 @@ const SPACE_COUNTS: Record<string, string> = {
   outreach: '6',
 };
 
-export function Sidebar() {
+export function Sidebar({ coach }: { coach: { displayName: string; email: string } }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { done, setNavOpen, storefront } = useAppState();
+  const [loggingOut, setLoggingOut] = useState(false);
   const left = QUEUE.length - done.length;
 
   const close = () => setNavOpen(false);
+
+  async function onLogout() {
+    setLoggingOut(true);
+    await logout();
+    // refresh() forces proxy.ts and the (app) layout to see the cleared cookie fresh.
+    router.push('/login');
+    router.refresh();
+  }
 
   return (
     <nav className="ins-dir-scroll" aria-label="Directory">
@@ -75,12 +87,15 @@ export function Sidebar() {
 
         <div className="ins-dir-foot">
           <span className="ins-me" style={{ width: 34, height: 34, fontSize: 12 }}>
-            MR
+            {initialsFor(coach.displayName)}
           </span>
-          <span>
-            <b>Maya Reyes</b>
+          <span className="ins-dir-foot-info">
+            <b>{coach.displayName}</b>
             Starter plan
           </span>
+          <button type="button" className="ins-logout" onClick={onLogout} disabled={loggingOut} aria-label="Log out">
+            <Icon name="logout" />
+          </button>
         </div>
       </div>
     </nav>

@@ -5,19 +5,35 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { PasswordField, TextField } from '@/components/AuthFields';
-import { hasErrors, readLogin, validateLogin, type FieldErrors, type LoginField } from '@/lib/auth';
+import { hasErrors, login, readLogin, validateLogin, type FieldErrors, type LoginField } from '@/lib/auth';
+import { useAppState } from '@/lib/store';
 
 export function LoginForm() {
   const router = useRouter();
+  const { toast } = useAppState();
   const [errors, setErrors] = useState<FieldErrors<LoginField>>({});
+  const [pending, setPending] = useState(false);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const next = validateLogin(readLogin(new FormData(e.currentTarget)));
+    const values = readLogin(new FormData(e.currentTarget));
+    const next = validateLogin(values);
     setErrors(next);
-    // Frontend only: there are no accounts to check against, so a well-formed email and
-    // password go straight to the app's homepage (Today).
-    if (!hasErrors(next)) router.push('/');
+    if (hasErrors(next)) return;
+
+    setPending(true);
+    const result = await login(values);
+    setPending(false);
+
+    if (result.ok) {
+      // refresh() after push forces the destination's server components (the (app) layout reads
+      // the session cookie) to re-render fresh rather than serve a pre-login prefetch.
+      router.push('/');
+      router.refresh();
+      return;
+    }
+    setErrors(result.fieldErrors);
+    if (!hasErrors(result.fieldErrors)) toast(result.message);
   }
 
   return (
@@ -41,8 +57,8 @@ export function LoginForm() {
         />
         <PasswordField name="password" label="Password" autoComplete="current-password" error={errors.password} />
 
-        <button type="submit" className="ins-btn go ins-auth-submit">
-          Log in
+        <button type="submit" className="ins-btn go ins-auth-submit" disabled={pending} aria-busy={pending}>
+          {pending ? 'Logging in…' : 'Log in'}
           <Icon name="arrow" />
         </button>
       </form>
