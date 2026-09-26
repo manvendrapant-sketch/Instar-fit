@@ -1,5 +1,6 @@
 import { getDb } from '@/lib/commerce/db';
 import { coaches } from '@/lib/commerce/schema';
+import { generateUniqueHandle } from '@/lib/auth/handle';
 import { hashPassword } from '@/lib/auth/password';
 import { createSessionToken, setSessionCookie } from '@/lib/auth/session';
 import { validateSignupInput } from '@/lib/auth/validation';
@@ -28,28 +29,21 @@ export async function POST(req: Request) {
   if ('errors' in validation) {
     return apiError('VALIDATION_ERROR', 'Please fix the highlighted fields and try again.', 422, validation.errors);
   }
-  const { email, password, displayName, handle } = validation.value;
+  const { email, password, displayName } = validation.value;
 
   const db = getDb();
 
-  const existing = await db.query.coaches.findFirst({
-    where: (c, { or, eq }) => or(eq(c.email, email), eq(c.handle, handle)),
-  });
+  const existing = await db.query.coaches.findFirst({ where: (c, { eq }) => eq(c.email, email) });
   if (existing) {
-    if (existing.email === email) {
-      return apiError(
-        'EMAIL_TAKEN',
-        'An account with this email already exists. Try logging in instead.',
-        409,
-        { email: 'This email is already registered.' },
-      );
-    }
-    return apiError('HANDLE_TAKEN', 'That handle is already taken. Please choose another.', 409, {
-      handle: 'This handle is already taken.',
-    });
+    return apiError(
+      'EMAIL_TAKEN',
+      'An account with this email already exists. Try logging in instead.',
+      409,
+      { email: 'This email is already registered.' },
+    );
   }
 
-  const passwordHash = await hashPassword(password);
+  const [passwordHash, handle] = await Promise.all([hashPassword(password), generateUniqueHandle(displayName)]);
 
   let coach;
   try {
@@ -58,12 +52,17 @@ export async function POST(req: Request) {
       .values({ email, passwordHash, displayName, handle })
       .returning();
   } catch {
-    // Guards the race between the pre-check above and the insert (two signups for the same
+    // Guards the race between the pre-checks above and the insert (two signups for the same
     // email/handle landing at once) — the unique indexes are the real source of truth.
-    return apiError('EMAIL_OR_HANDLE_TAKEN', 'That email or handle was just taken. Please try again.', 409);
+    return apiError('EMAIL_OR_HANDLE_TAKEN', "That email was just taken, or the account couldn't be created. Please try again.", 409);
   }
 
-  const token = await createSessionToken({ coachId: coach.id, email: coach.email, handle: coach.handle });
+  const token = await createSessionToken({
+    coachId: coach.id,
+    email: coach.email,
+    handle: coach.handle,
+    displayName: coach.displayName,
+  });
 
   const response = apiSuccess<SignupResponseData>(
     { coach: { id: coach.id, email: coach.email, handle: coach.handle, displayName: coach.displayName } },

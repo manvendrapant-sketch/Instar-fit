@@ -4,15 +4,11 @@
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Lowercase letters, digits and hyphens only, matching what the storefront URL (/[coachHandle])
-// can safely take — no leading/trailing hyphen.
-const HANDLE_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export interface SignupInput {
   email: string;
   password: string;
   displayName: string;
-  handle: string;
 }
 
 export interface LoginInput {
@@ -31,7 +27,6 @@ export function validateSignupInput(body: unknown): { errors: Record<string, str
   const email = isNonEmptyString(b.email) ? b.email.trim().toLowerCase() : '';
   const password = isNonEmptyString(b.password) ? b.password : '';
   const displayName = isNonEmptyString(b.displayName) ? b.displayName.trim() : '';
-  const handle = isNonEmptyString(b.handle) ? b.handle.trim().toLowerCase() : '';
 
   if (!email) errors.email = 'Email is required.';
   else if (!EMAIL_RE.test(email)) errors.email = 'Enter a valid email address.';
@@ -41,15 +36,8 @@ export function validateSignupInput(body: unknown): { errors: Record<string, str
 
   if (!displayName) errors.displayName = 'Name is required.';
 
-  if (!handle) errors.handle = 'Handle is required.';
-  else if (handle.length < 3 || handle.length > 40) {
-    errors.handle = 'Handle must be between 3 and 40 characters.';
-  } else if (!HANDLE_RE.test(handle)) {
-    errors.handle = 'Handle can only contain lowercase letters, numbers, and hyphens.';
-  }
-
   if (Object.keys(errors).length > 0) return { errors };
-  return { value: { email, password, displayName, handle } };
+  return { value: { email, password, displayName } };
 }
 
 export function validateLoginInput(body: unknown): { errors: Record<string, string> } | { value: LoginInput } {

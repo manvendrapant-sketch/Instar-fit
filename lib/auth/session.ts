@@ -13,6 +13,9 @@ export interface SessionPayload extends JWTPayload {
   coachId: string;
   email: string;
   handle: string;
+  // Not sensitive, and letting server components read it straight off the token (via
+  // verifySessionToken) saves them a DB round trip just to render a name/initials in the chrome.
+  displayName: string;
 }
 
 /**

@@ -41,7 +41,12 @@ export async function POST(req: Request) {
   const passwordMatches = await verifyPassword(password, coach.passwordHash);
   if (!passwordMatches) return invalidCredentials();
 
-  const token = await createSessionToken({ coachId: coach.id, email: coach.email, handle: coach.handle });
+  const token = await createSessionToken({
+    coachId: coach.id,
+    email: coach.email,
+    handle: coach.handle,
+    displayName: coach.displayName,
+  });
 
   const response = apiSuccess<LoginResponseData>(
     { coach: { id: coach.id, email: coach.email, handle: coach.handle, displayName: coach.displayName } },
