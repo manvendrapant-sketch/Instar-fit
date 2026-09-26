@@ -1,0 +1,314 @@
+/* Instar · payouts: Connect status, the hand-off to Stripe and the return screen. Tokens and
+   Obsidian+ component classes only; status colours always come with a word. */
+
+.ins-nav-setup.warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.ins-po-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.ins-po-card {
+  padding: var(--space-26);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ins-po-card h2 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+.ins-po-body {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--muted);
+}
+.ins-po-card .ins-actions {
+  margin-top: 10px;
+}
+
+/* Progress */
+.ins-po-steps {
+  list-style: none;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 0 0 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.ins-po-steps li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.ins-po-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--chip);
+  border: 1px solid var(--line);
+}
+.ins-po-steps li.now {
+  color: var(--text);
+}
+.ins-po-steps li.now .ins-po-dot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ins-po-steps li.done .ins-po-dot {
+  border-color: transparent;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+.ins-po-h {
+  margin: 12px 0 2px;
+  font-weight: 400;
+}
+.ins-po-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14.5px;
+}
+.ins-po-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.ins-po-list .ins-i {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.ins-po-due-dot {
+  width: 8px;
+  height: 8px;
+  margin: 7px 3px 0;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--warn);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.ins-po-facts {
+  width: 100%;
+  margin: 10px 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.ins-po-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ins-po-facts dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+.ins-po-facts dd {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.ins-po-facts dd.ok {
+  color: var(--ok);
+}
+.ins-po-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+/* Side explainer */
+.ins-po-side {
+  gap: 0;
+}
+.ins-po-how {
+  padding: 22px var(--space-26);
+}
+.ins-po-how h2 {
+  margin: 0 0 14px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.ins-po-how ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: how;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ins-po-how li {
+  counter-increment: how;
+  position: relative;
+  padding-left: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ins-po-how li::before {
+  content: counter(how);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--chip);
+}
+.ins-po-how b {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.ins-po-how span {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ins-po-safe {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ins-po-safe .ins-i {
+  margin-top: 2px;
+}
+
+/* Prototype-only controls: dashed so they never read as product UI */
+.ins-po-proto {
+  padding: 16px 20px;
+  border-radius: var(--radius-row);
+  border: 1px dashed var(--line);
+}
+.ins-po-proto p {
+  margin: 6px 0 12px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.ins-po-proto .ins-btn {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+.ins-po-standin {
+  border-color: var(--warn);
+}
+.ins-po-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ins-po-connect {
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 120px;
+}
+
+/* Return screen */
+.ins-po-checking {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+}
+.ins-po-checking h1 {
+  margin: 12px 0 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 32px;
+  letter-spacing: -0.03em;
+}
+.ins-po-checking p {
+  margin: 0;
+  color: var(--muted);
+}
+.ins-po-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  animation: ins-spin 0.8s linear infinite;
+}
+@keyframes ins-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .ins-po-card {
+    padding: 22px 18px;
+  }
+  .ins-po-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 12px;
+  }
+  .ins-po-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ins-po-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Storefront "what's next" list: the payouts step links here */
+.ins-sf-steps li a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+.ins-sf-steps li a:hover {
+  text-decoration-color: var(--accent);
+}

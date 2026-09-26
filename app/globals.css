@@ -2,6 +2,9 @@
 @import './styles/components.css';
 @import './styles/layout.css';
 @import './styles/auth.css';
+@import './styles/storefront.css';
+@import './styles/offers.css';
+@import './styles/payouts.css';
 
 * {
   box-sizing: border-box;

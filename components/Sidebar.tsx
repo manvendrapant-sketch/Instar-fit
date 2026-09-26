@@ -7,6 +7,9 @@ import { initialsFor, logout } from '@/lib/auth';
 import { Icon, type IconName } from '@/lib/icons';
 import { SPACES, QUEUE } from '@/lib/data';
 import { useAppState } from '@/lib/store';
+import { STOREFRONT_PATH } from '@/lib/storefront';
+import { OFFERS_PATH } from '@/lib/offers';
+import { PAYOUTS_PATH } from '@/lib/payouts';
 
 const SPACE_COUNTS: Record<string, string> = {
   roster: '36',
@@ -18,7 +21,7 @@ const SPACE_COUNTS: Record<string, string> = {
 export function Sidebar({ coach }: { coach: { displayName: string; email: string } }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { done, setNavOpen } = useAppState();
+  const { done, setNavOpen, storefront, offers, payouts } = useAppState();
   const [loggingOut, setLoggingOut] = useState(false);
   const left = QUEUE.length - done.length;
 
@@ -54,13 +57,67 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                 {space.title}
                 <span aria-hidden="true">{spaceActive ? '•' : ''}</span>
               </div>
-              {space.tiles.map((tile) => (
-                <Link key={tile.id} href={`/${space.id}#${tile.id}`} className="ins-nav" onClick={close}>
-                  <Icon name={tile.id as IconName} />
-                  {tile.title}
-                  {SPACE_COUNTS[tile.id] && <span className="n">{SPACE_COUNTS[tile.id]}</span>}
-                </Link>
-              ))}
+              {space.tiles.map((tile) => {
+                if (tile.id === 'payouts') {
+                  const on = pathname.startsWith(PAYOUTS_PATH);
+                  // Payouts is step 3: only nudge once there's an offer to get paid for.
+                  const marker =
+                    payouts.status === 'action_needed' ? 'Action' : payouts.status === 'pending_review' ? 'Review' : payouts.status === 'not_started' && offers.length > 0 ? 'Set up' : null;
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={PAYOUTS_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <Icon name="payouts" />
+                      {tile.title}
+                      {marker && <span className={`ins-nav-setup ${payouts.status === 'action_needed' ? 'warn' : ''}`}>{marker}</span>}
+                    </Link>
+                  );
+                }
+                if (tile.id === 'offers') {
+                  const on = pathname.startsWith(OFFERS_PATH);
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={OFFERS_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <Icon name="offers" />
+                      {tile.title}
+                      {offers.length > 0 && <span className="n">{offers.length}</span>}
+                    </Link>
+                  );
+                }
+                if (tile.id === 'storefront') {
+                  const on = pathname === STOREFRONT_PATH;
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={STOREFRONT_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      data-nav="storefront"
+                      onClick={close}
+                    >
+                      <Icon name="storefront" />
+                      {tile.title}
+                      {!storefront && <span className="ins-nav-setup">Set up</span>}
+                    </Link>
+                  );
+                }
+                return (
+                  <Link key={tile.id} href={`/${space.id}#${tile.id}`} className="ins-nav" onClick={close}>
+                    <Icon name={tile.id as IconName} />
+                    {tile.title}
+                    {SPACE_COUNTS[tile.id] && <span className="n">{SPACE_COUNTS[tile.id]}</span>}
+                  </Link>
+                );
+              })}
             </div>
           );
         })}

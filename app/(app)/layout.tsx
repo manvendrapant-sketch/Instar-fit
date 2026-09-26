@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { TopBar } from '@/components/TopBar';
 import { Sidebar } from '@/components/Sidebar';
 import { CommandPalette } from '@/components/CommandPalette';
+import { StorefrontPrompt } from '@/components/StorefrontPrompt';
 import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/auth/session';
 
 // Coach dashboard chrome: top bar, sidebar directory and command palette. proxy.ts already
@@ -24,6 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </div>
       <CommandPalette />
+      <StorefrontPrompt />
     </>
   );
 }
