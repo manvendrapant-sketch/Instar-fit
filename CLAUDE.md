@@ -154,16 +154,29 @@ and hand the user a combined SQL file: the migration's own SQL, plus
 plus an `INSERT` of that hash and the journal entry's `when` timestamp into that table. They paste
 it into Supabase's SQL Editor (browser, not this sandbox — works fine over 443). This keeps
 `drizzle-kit migrate`'s bookkeeping correct so a *future* migration, run from anywhere with real DB
-access, only applies what's actually new. Two migrations have gone out this way so far:
-`0000_special_hellfire_club.sql` (initial schema) and `0001_tiny_hobgoblin.sql` (RLS enablement,
-see `Decisions.md`).
+access, only applies what's actually new.
+
+**Mistake made and fixed once already**: the very first handoff put the
+`CREATE SCHEMA IF NOT EXISTS "drizzle"; CREATE TABLE IF NOT EXISTS ...` bookkeeping-table creation
+only in the *first* migration's file, on the assumption the user would always run files in order
+and each one would build on a database state where earlier files had already succeeded. That
+assumption broke in practice (got a `relation "drizzle.__drizzle_migrations" does not exist` error
+on the second file) — don't repeat it. **Every** hand-off file must independently include the
+`CREATE SCHEMA IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS` bookkeeping lines (harmless to repeat)
+and should guard its `INSERT` with `WHERE NOT EXISTS (SELECT 1 FROM ... WHERE hash = ...)` so it's
+safe to re-run if something upstream already partially succeeded. Treat each file as fully
+self-contained and idempotent — never assume a prior file in the sequence actually ran.
+
+Two migrations have gone out this way so far: `0000_special_hellfire_club.sql` (initial schema)
+and `0001_tiny_hobgoblin.sql` (RLS enablement, see `Decisions.md`).
 
 **Not done / needs the user**: migrations 0000 and 0001 were handed to the user to apply manually
-(see above) — confirm they've actually run them before assuming the schema exists. `db:seed` has
-the same port-443-only problem and hasn't been run anywhere yet (needs either the user's machine,
-which has normal network access, or hand-written INSERT SQL the same way as the migrations). No
-Stripe test-mode keys are configured yet either. All of this is needed before Sprint 1's "done when"
-bar (Pari can hit mocked routes; webhooks log in test mode) is actually met, not just compiles.
+(see above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming
+the schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet
+(needs either the user's machine, which has normal network access, or hand-written INSERT SQL the
+same way as the migrations). No Stripe test-mode keys are configured yet either. All of this is
+needed before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
+actually met, not just compiles.
 
 ### Still open / next up
 
