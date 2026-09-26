@@ -605,3 +605,34 @@ with real network access.
 - Deleting/hiding an offer's Stripe product on delete is best-effort only (see above) — if Stripe
   itself is down, the offer still deletes but the Stripe product stays active; nothing reconciles
   that later.
+
+### Migrations applied, deployed to `main`, then Storefront page was blank (2026-09-26)
+
+Manvendra applied migrations 0000-0004 himself, then asked to push `main` and publish. Pushed
+(fast-forward, `main` == `feat/commerce-storefront-apis`), and set `STRIPE_SECRET_KEY`/
+`STRIPE_PUBLISHABLE_KEY` in Vercel (still unset until now — offers/payouts genuinely call Stripe as
+of this branch, unlike the earlier login/signup-only deploy). **Same gotcha as the very first
+Commerce deploy**: the git push's auto-triggered production deployment had already finished
+building before those two env vars existed, so it shipped without them — redeployed
+(`create_deployment` with that deployment's id) to pick them up. Confirmed `READY` and aliased to
+both production domains.
+
+Then: clicking **Storefront** in the sidebar showed a blank content pane. Root-caused from the code
+alone (this sandbox still can't reach the live site or its logs — `get_runtime_errors`,
+`get_runtime_logs`, `web_fetch_vercel_url`, a direct `curl`/`WebFetch` to `instar-fit.vercel.app` all
+still refuse the same way documented above): `StorefrontCreator` returned `null` whenever
+`GET /api/coach/profile` failed for *any* reason, with no error shown — only a toast that vanishes
+after 2.6s. Fixed: it now renders a "Couldn't load your storefront" panel with a Try again button
+(calling the existing `refreshStorefront()`) instead of silently rendering nothing. This is a real
+bug independent of root cause and should have been there from the start (every other
+failure-during-load path in this app shows *something*).
+
+The likely actual trigger, unconfirmed without log access: migration `0004` (the one adding
+`coaches.specialties`/`coaching_mode`/`time_zone`/`storefront_completed_at`) landed in the same
+turn as the route that reads those columns — if it was applied a beat after Manvendra said
+"migrations applied," or the handoff SQL was run out of order, `GET /api/coach/profile`'s
+`SELECT` (drizzle generates the column list from `schema.ts`, not `SELECT *`) would 500 on a
+missing column, exactly reproducing "nothing appears." Worth checking directly in Supabase's table
+editor (do `specialties`/`coaching_mode`/`time_zone`/`storefront_completed_at` exist on `coaches`?)
+before assuming the blank-panel fix alone resolved it — the fix makes the failure visible, it
+doesn't remove whatever's actually causing it.
