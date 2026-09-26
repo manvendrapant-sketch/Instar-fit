@@ -7,6 +7,7 @@ import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
 import { OfferCard } from '@/components/OfferCard';
 import { OFFERS_PATH } from '@/lib/offers';
+import { isPayoutsReady, PAYOUTS_PATH } from '@/lib/payouts';
 import {
   addSpecialty,
   AVATAR_MAX_BYTES,
@@ -35,9 +36,10 @@ function initials(name: string) {
 }
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
-  const { storefront, saveStorefront, toast, offers } = useAppState();
+  const { storefront, saveStorefront, toast, offers, payouts } = useAppState();
   const shownOffers = offers.filter((o) => o.visible);
   const hasOffer = offers.length > 0;
+  const payoutsReady = isPayoutsReady(payouts);
   // Time zone starts as a fixed default so server and client render the same markup; the
   // browser's own zone replaces it after mount.
   const [draft, setDraft] = useState<StorefrontDraft>(() => withStorefrontDefaults({ ...defaults, timeZone: DEFAULT_TIME_ZONE }));
@@ -381,9 +383,11 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
               <span className="ins-num">{storefront!.handle}.instar.co</span> is yours.
             </h2>
             <p>
-              {hasOffer
-                ? 'It isn’t public yet. Connect payouts, then publish it and put the link in your Instagram bio.'
-                : 'It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram bio.'}
+              {!hasOffer
+                ? 'It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram bio.'
+                : !payoutsReady
+                  ? 'It isn’t public yet. Connect payouts, then publish it and put the link in your Instagram bio.'
+                  : 'You’re ready to publish. Publishing is coming in the next update.'}
             </p>
             <ol className="ins-sf-steps">
               <li className="done">
@@ -401,10 +405,17 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
                   Add your first offer
                 </li>
               )}
-              <li>
-                <span className="ins-sf-step-n">3</span>
-                Connect payouts to publish
-              </li>
+              {payoutsReady ? (
+                <li className="done">
+                  <Icon name="check" className="ins-i sm" />
+                  Connect payouts
+                </li>
+              ) : (
+                <li>
+                  <span className="ins-sf-step-n">3</span>
+                  <Link href={PAYOUTS_PATH}>Connect payouts to publish</Link>
+                </li>
+              )}
             </ol>
             <div className="ins-actions">
               <Link href={hasOffer ? OFFERS_PATH : `${OFFERS_PATH}/new`} className={`ins-btn ${hasOffer ? '' : 'go'}`}>

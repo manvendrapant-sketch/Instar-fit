@@ -6,11 +6,12 @@ import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { formatOfferPrice, OFFER_TYPES, OFFERS_PATH } from '@/lib/offers';
+import { isPayoutsReady, PAYOUTS_PATH, STATUS_COPY } from '@/lib/payouts';
 
 const QUICK_STARTS: OfferType[] = ['subscription', 'one_time', 'session'];
 
 export function OffersList() {
-  const { offers, reorderOffer, saveOffer, storefront, hydrated } = useAppState();
+  const { offers, reorderOffer, saveOffer, storefront, hydrated, payouts } = useAppState();
   const live = offers.filter((o) => o.visible).length;
 
   return (
@@ -34,18 +35,29 @@ export function OffersList() {
       </section>
 
       {/* Stays until payouts exist: it's the step that blocks publishing. */}
-      {hydrated && offers.length > 0 && (
+      {hydrated && offers.length > 0 && !isPayoutsReady(payouts) && (
         <section className="ins-panel ins-offers-next ins-in" aria-labelledby="next-title">
           <span className="ins-sf-prompt-icon" aria-hidden="true">
             <Icon name="payouts" />
           </span>
           <div>
-            <span className="ins-label">Next step · coming soon</span>
-            <h2 id="next-title">Connect payouts so clients can pay you</h2>
+            <span className="ins-label">Next step · payouts {STATUS_COPY[payouts.status].chip.toLowerCase()}</span>
+            <h2 id="next-title">
+              {payouts.status === 'pending_review' ? 'Stripe is checking your details' : 'Connect payouts so clients can pay you'}
+            </h2>
             <p>
-              You’ll add your bank details on Stripe’s secure page, not in Instar. Verification can take a day, so it’s worth
-              starting soon. Your storefront goes live once payouts are ready.
+              {payouts.status === 'pending_review'
+                ? 'Nothing to do right now. Your storefront can go live as soon as Stripe approves you.'
+                : 'You’ll add your bank details on Stripe’s secure page, not in Instar. Verification can take a day, so it’s worth starting soon. Your storefront goes live once payouts are ready.'}
             </p>
+            {payouts.status !== 'pending_review' && (
+              <div className="ins-actions" style={{ marginTop: 14 }}>
+                <Link href={PAYOUTS_PATH} className="ins-btn go">
+                  {payouts.status === 'action_needed' ? 'Finish payouts setup' : 'Connect payouts'}
+                  <Icon name="arrow" />
+                </Link>
+              </div>
+            )}
           </div>
         </section>
       )}

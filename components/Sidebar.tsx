@@ -9,6 +9,7 @@ import { SPACES, QUEUE } from '@/lib/data';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
+import { PAYOUTS_PATH } from '@/lib/payouts';
 
 const SPACE_COUNTS: Record<string, string> = {
   roster: '36',
@@ -20,7 +21,7 @@ const SPACE_COUNTS: Record<string, string> = {
 export function Sidebar({ coach }: { coach: { displayName: string; email: string } }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { done, setNavOpen, storefront, offers } = useAppState();
+  const { done, setNavOpen, storefront, offers, payouts } = useAppState();
   const [loggingOut, setLoggingOut] = useState(false);
   const left = QUEUE.length - done.length;
 
@@ -57,6 +58,25 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                 <span aria-hidden="true">{spaceActive ? '•' : ''}</span>
               </div>
               {space.tiles.map((tile) => {
+                if (tile.id === 'payouts') {
+                  const on = pathname.startsWith(PAYOUTS_PATH);
+                  // Payouts is step 3: only nudge once there's an offer to get paid for.
+                  const marker =
+                    payouts.status === 'action_needed' ? 'Action' : payouts.status === 'pending_review' ? 'Review' : payouts.status === 'not_started' && offers.length > 0 ? 'Set up' : null;
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={PAYOUTS_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <Icon name="payouts" />
+                      {tile.title}
+                      {marker && <span className={`ins-nav-setup ${payouts.status === 'action_needed' ? 'warn' : ''}`}>{marker}</span>}
+                    </Link>
+                  );
+                }
                 if (tile.id === 'offers') {
                   const on = pathname.startsWith(OFFERS_PATH);
                   return (
