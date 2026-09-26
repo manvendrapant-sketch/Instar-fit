@@ -483,10 +483,12 @@ holding for every new route) and that `npx eslint .` / `npx tsc --noEmit` are bo
 - No live Stripe verification — `.env.local` now has real test-mode keys, but nothing here was
   exercised against the actual Stripe test API (same network restriction as everywhere else in this
   file); only unit tests with `getStripe`/`getDb` mocked ran.
-- `account.updated` webhook handling (to refresh `connectedAccounts.chargesEnabled` /
+- ~~`account.updated` webhook handling (to refresh `connectedAccounts.chargesEnabled` /
   `payoutsEnabled` / `requirementsDue` from Stripe) is still Sprint-2+ per the workplan — the
   webhook route still only dedupes, so a real coach's `onboarding-status` will read
-  `not_started`/`action_needed` indefinitely until that lands.
+  `not_started`/`action_needed` indefinitely until that lands.~~ **Sidestepped, not built** — see
+  the live-Stripe incident section far below: `onboarding-status` now asks Stripe directly
+  (`accounts.retrieve`) on every call instead of waiting on a webhook that still doesn't exist.
 - ~~Deleting/archiving an offer beyond `active: false` wasn't asked for and isn't implemented.~~
   **Added in the frontend-integration pass below** (`DELETE /api/offers/[id]`) once the merged
   offer builder turned out to have a real delete button.
@@ -625,3 +627,70 @@ missing column, exactly reproducing "nothing appears." Worth checking directly i
 editor (do `specialties`/`coaching_mode`/`time_zone`/`storefront_completed_at` exist on `coaches`?)
 before assuming the blank-panel fix alone resolved it — the fix makes the failure visible, it
 doesn't remove whatever's actually causing it.
+
+### The live-Stripe incident: login itself broke, then Connect account-link, then stale status (2026-09-26)
+
+Confirmed the hypothesis above was right, the hard way: **login itself started 500ing** after the
+migrations-applied deploy — not just the new Storefront page. Root cause, confirmed via
+`information_schema.columns` and `drizzle.__drizzle_migrations` queries Manvendra ran directly in
+Supabase (this session still has zero Postgres access, so this was the only way to actually see the
+DB's state): **migration `0003_sad_diamondback` had never run** — only 0000, 0001, 0002 and 0004
+were recorded. `db.query.coaches.findFirst()` has no column restriction, so Drizzle's relational
+query builder selects *every* column `schema.ts` declares — once `schema.ts` included
+`coaches.published` (from 0003), literally every coach-table query, login included, started asking
+Postgres for a column that didn't exist. Lesson: **a later migration's bookkeeping row existing is
+not evidence an earlier one ran** — check the specific columns a broken route touches, don't assume
+sequential success from the newest hash being present.
+
+**Immediate mitigation while diagnosing**: rolled production back to the last commit predating any
+of these schema columns (`7cca508`, via `create_deployment` reusing that old deployment's id —
+Vercel's dedicated `request_rollback` tool 402'd past one deployment back on this Hobby-plan
+account, so a plain redeploy of the old commit was used instead). This restored login immediately
+at the cost of pulling the just-shipped storefront/offers/payouts features back out of production
+for a few minutes. Once Manvendra ran migration 0003's handoff SQL and confirmed it, redeployed
+forward to the newer commit (`06cc2c4`, which also includes the StorefrontCreator blank-panel fix
+above) and it was clean.
+
+**Then Connect payouts 500'd** (`POST /api/coach/connect/account-link`). Same "no log access"
+constraint, but this time Stripe's own dashboard gave the real answer directly (Developers → Logs,
+Manvendra pasted the JSON): `"Stripe no longer recommends Accounts v1 for new Connect
+integrations... enable Accounts v1 support in the Dashboard"`. **New Stripe accounts have the
+classic `POST /v1/accounts` endpoint (what `stripe.accounts.create()` in the Node SDK calls) turned
+off by default now** — this is a current Stripe platform policy, not a bug introduced by this repo.
+Two paths: enable the "Accounts v1 support" compatibility toggle (dashboard →
+Settings → Developers → API policies) as an immediate unblock, or migrate this repo's Connect
+account creation to the newer Accounts v2 API (`POST /v2/core/accounts`) properly. **Only the quick
+toggle has been done so far** — migrating to v2 is still open, flagged below.
+
+Along the way, it turned out Manvendra had been doing the Connect platform-profile setup (business
+model = marketplace, liability/compliance acknowledgements) inside a separate **Stripe Sandbox**
+("Instar Sandbox") rather than the original account's plain test mode — sandboxes carry their own
+API keys. `STRIPE_SECRET_KEY`/`STRIPE_PUBLISHABLE_KEY` in Vercel were updated to the sandbox's keys
+(and in this sandbox's own `.env.local`) once that surfaced, with a redeploy to pick them up.
+**Whichever Stripe test-mode/sandbox environment the keys belong to is the one that must have the
+Connect marketplace platform profile configured** — if test keys are ever rotated again, re-check
+this pairing before assuming a fresh 500 is a code bug.
+
+**Then, after actually completing Stripe's Express onboarding form for real** (business type,
+professional details, personal details, a test bank account, confirmed) — the app's Payouts page
+kept showing "Action needed / Stripe needs a few more details," not "Ready." This is the
+`account.updated`-webhook gap called out above finally biting in practice: `connected_accounts`
+only ever gets written once, at account-link creation time (all flags false, empty requirements),
+and nothing was pushing Stripe's real post-onboarding status into that row. Rather than building
+out real webhook handling (needs a registered public endpoint + signing secret, still not set up),
+`GET /api/coach/onboarding-status` (`app/api/coach/onboarding-status/route.ts`) now calls
+`stripe.accounts.retrieve()` live on every request, and opportunistically updates the cached
+`connected_accounts` row when Stripe's answer differs from what's stored — a Stripe API hiccup
+during that sync falls back to the last cached values instead of 500ing the whole endpoint. Shipped
+with tests (`route.test.ts`): not-called-when-no-account, DB-write-on-drift,
+no-write-when-unchanged, and fallback-on-Stripe-error.
+
+**Still open**:
+- Migrating Connect account creation to Stripe's Accounts v2 API — the "Accounts v1 support"
+  dashboard toggle is a compatibility stopgap, not something to rely on indefinitely; Stripe's own
+  error message says so explicitly.
+- Real `account.updated` webhook handling still doesn't exist; the live-sync-on-read approach above
+  is a reasonable substitute for a single-coach status check but doesn't scale to "notify the coach
+  the moment Stripe finishes reviewing them" without the coach happening to reload the page.
+- `db:seed` still hasn't been run anywhere (same port-443-only sandbox restriction as every other
+  DB operation in this file).
