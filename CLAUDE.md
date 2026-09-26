@@ -49,8 +49,13 @@ done-state, toasts, nav/command-palette open state — persisted to `localStorag
 (current tip, re-synced to the republished design system). Both pushed to `origin`.
 
 **Deployment**: Vercel project `instar-fit` under the personal Hobby-plan account
-(`manvendra-s-projects1` / `team_rTqJzCsTpprfKa0TvMCruWJO`), linked to this GitHub repo, deploying
-`updated-obsidian-plus` to production. Public, no login wall (`ssoProtection` explicitly disabled):
+(`manvendra-s-projects1` / `team_rTqJzCsTpprfKa0TvMCruWJO`), linked to this GitHub repo. **As of
+2026-09-26 production deploys from `main`** (a push to `main` auto-deploys — confirmed by pushing
+the Commerce/auth merge below and watching it build), not `updated-obsidian-plus` as this file
+used to say; that note was stale, not a setting anyone changed on purpose. Public, no login wall
+(`ssoProtection` explicitly disabled) — but `/`, `/clients`, `/grow`, `/business` now redirect to
+`/login` for a signed-out visitor via `proxy.ts` (see "Login / signup APIs" below), so "no login
+wall" now means the marketing/auth pages are public, not that the dashboard itself is:
 - https://instar-fit.vercel.app
 - https://instar-fit-manvendra-s-projects1.vercel.app
 
@@ -172,12 +177,16 @@ Three migrations have gone out this way so far: `0000_special_hellfire_club.sql`
 (adds `coaches.password_hash` for the login/signup APIs below).
 
 **Not done / needs the user**: migrations 0000-0002 were handed to the user to apply manually (see
-above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming the
-schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet (needs
-either the user's machine, which has normal network access, or hand-written INSERT SQL the same way
-as the migrations). No Stripe test-mode keys are configured yet either. All of this is needed
-before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
-actually met, not just compiles.
+above) — **still unconfirmed as of the 2026-09-26 merge/deploy below.** This is the one real
+unknown hanging over that deploy: `DATABASE_URL` is now set in Vercel (see "Merged to `main` and
+deployed" below) so the API routes can *reach* Postgres, but if the schema/`password_hash` column
+aren't actually there yet, signup/login will fail with a DB error in production, not a config one.
+Confirm this before trusting a report that auth "works" — a build succeeding and a deployment going
+`READY` says nothing about whether these migrations ran. `db:seed` has the same port-443-only
+problem and hasn't been run anywhere yet (needs either the user's machine, which has normal network
+access, or hand-written INSERT SQL the same way as the migrations). No Stripe test-mode keys are
+configured yet either. All of this is needed before Sprint 1's "done when" bar (Pari can hit mocked
+routes; webhooks log in test mode) is actually met, not just compiles.
 
 ## Login / signup APIs (branch `feat/commerce-login-signup`, 2026-09-26)
 
@@ -227,6 +236,47 @@ own last commit, "Make sign up and log in frontend-only") pending exactly this.
   signup/login still can't be exercised from this sandbox — same Postgres-pooler restriction as
   everything else in this file — so that path is unit-reasoned, not screenshotted.
 
+### Merged to `main` and deployed (2026-09-26)
+
+Requested by Manvendra directly: `feat/commerce-login-signup` (backend + frontend wiring + Jest
+suite, everything above) merged into `main` and pushed straight to `origin` — no PR opened (none
+was asked for; the repo's audit above already flagged that PRs here get instantly self-merged with
+no review anyway, so a direct push isn't a meaningfully different risk). `main` had moved since the
+last session (someone merged the frontend-only `login-feature` PR straight into it separately, PR
+#3) — merged cleanly, no conflicts, since this branch already contained that same content from its
+own earlier `login-feature` merge.
+
+Pushing to `main` auto-triggered a Vercel production deployment (confirms production now deploys
+from `main`, not `updated-obsidian-plus` — see "Deployment" above). Before that deploy could
+actually work, **`filter_project_envs` showed the Vercel project had zero environment variables
+set at all** — not `DATABASE_URL`, nothing. Set via the Vercel API (`create_project_env`, type
+`encrypted`, target `production`+`preview`+`development`):
+- `DATABASE_URL` — the real Supabase pooler connection string.
+- `AUTH_JWT_SECRET` — freshly generated (`crypto.randomBytes(32).toString('base64')`), **not** the
+  `local-dev-only-...` placeholder that's in this sandbox's own `.env.local`. Rotating it logs out
+  every existing session; there are no real users yet so that's free right now, not later.
+
+Stripe env vars were deliberately left unset — no test-mode keys exist yet (see above), and nothing
+login/signup does touches Stripe. `PLATFORM_TAKE_RATE_BPS`/`SERVICE_FEE_RATE_BPS` were also left
+unset; `lib/commerce/money.ts` falls back to the documented 300/200 bps defaults either way.
+
+The first auto-triggered deployment had already finished building *before* those env vars existed
+(Vercel bakes env vars into a deployment at build time), so it was redeployed
+(`create_deployment` with that deployment's id, `target: "production"`) — the second one picked up
+the new vars and is what's actually live. Confirmed `READY` and aliased to both production domains
+via `get_deployment`.
+
+**Could not fully verify the live site from this sandbox**: this sandbox's egress proxy 403s a
+direct `curl` to `*.vercel.app` (organization policy, unrelated to the deployment itself — same
+kind of network restriction as the Postgres-pooler one elsewhere in this file, just a different
+host), and the Vercel MCP connector's own `web_fetch_vercel_url` also declined ("Vercel denied
+access... ask the user to update their Vercel connection"). So: the build succeeded, the env vars
+are correctly set, and the deployment is live and aliased — but nobody has actually exercised
+signup/login against the real production DB yet. Combined with migrations 0000-0002 being
+unconfirmed as applied (see "Not done / needs the user" above), **the next session (or Manvendra
+directly) should try creating a real account on the live site** before assuming this works, not
+just take the deployment's green checkmark at face value.
+
 ### Still open / next up
 
 - Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
@@ -239,6 +289,8 @@ own last commit, "Make sign up and log in frontend-only") pending exactly this.
   signup → login → logout pass against the live DB from somewhere with real network access — this
   session could only verify the wiring with a hand-crafted JWT and mocked API responses, not the
   actual insert/lookup.
+- **Verify the live site**: try an actual signup on https://instar-fit.vercel.app — see "Merged to
+  `main` and deployed" below for why this specific session couldn't confirm it itself.
 
 ### Process audit vs `Workplan-Manvendra.md` (2026-09-26) — gaps found, not yet fixed
 
