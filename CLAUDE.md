@@ -198,12 +198,39 @@ why a JWT cookie instead of a sessions table, what's deliberately out of scope).
 
 ### Still open / next up
 
+- **Waiting on Manvendra to wire the frontend to these login/signup APIs before picking up the
+  next task** — flagged 2026-09-26 so the next session doesn't have to re-derive this. Once that's
+  done, come back to the audit findings below rather than starting fresh work blind to them.
 - Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
   Claude Code sandbox cannot reach Postgres" above.
 - Login/signup has no email verification, password reset, or rate limiting yet (see above).
+
+### Process audit vs `Workplan-Manvendra.md` (2026-09-26) — gaps found, not yet fixed
+
+Checked this repo's actual state against the workplan's own "Working agreement" rules:
+
+- **"Pari reviews every PR" is not happening.** Checked both merged PRs via the GitHub API: PR #1
+  (`updated-obsidian-plus`) and PR #2 (`feat/commerce-sprint1-foundations`) were each opened and
+  merged by the same author within ~9 seconds of each other, zero reviews on either. If this rule
+  still matters, it needs enforcing (branch protection requiring review) rather than trusting habit.
+- **"Every PR includes... tests for webhook handlers" is not happening either.** There is no test
+  runner in this repo at all (no jest/vitest, no `*.test.*` file anywhere). The Stripe webhook
+  route shipped in Sprint 1 with no tests, and this branch's login/signup routes didn't add any
+  either. If/when this gets fixed, start with the webhook handler since the workplan calls it out
+  by name.
+- The Sprint 1 section above's "not merged anywhere yet... ask before merging/opening a PR" language
+  is stale now that PR #2 already merged straight to `main` same-day — `main` is the de facto merge
+  target for Commerce branches now, whatever the earlier uncertainty says.
+- The workplan's own assumption ("auth... already exist[s]") didn't hold for this repo — there was
+  no auth until this session's login/signup work, which isn't one of the workplan's numbered sprint
+  tasks. Worth reconciling with Manvendra/Pari so the workplan's sprint numbering and this repo's
+  actual state don't drift further apart.
+- Also still pending, unrelated to process: migrations 0000-0002 and `db:seed` unconfirmed as run
+  against the real DB (see above), no Stripe test-mode keys configured, and `AUTH_JWT_SECRET` isn't
+  set in Vercel's project env vars yet — signup/login will 500 in production without it.
 
 ### Working conventions to carry into any Commerce code
 
