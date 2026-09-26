@@ -18,7 +18,13 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
         'and set DATABASE_URL in .env.local / the Vercel project env vars.',
     );
   }
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(url, {
+    max: 1,
+    // Required if DATABASE_URL points at Supabase's transaction-mode pooler (port 6543):
+    // PgBouncer in transaction mode doesn't support prepared statements. Harmless against a
+    // direct connection too, so it's left on unconditionally rather than branching on the URL.
+    prepare: false,
+  });
   client = drizzle(sql, { schema });
   return client;
 }
