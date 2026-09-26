@@ -1,0 +1,20 @@
+@import './styles/tokens.css';
+@import './styles/components.css';
+@import './styles/layout.css';
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+html {
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
