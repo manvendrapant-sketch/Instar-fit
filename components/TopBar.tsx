@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { initialsFor } from '@/lib/auth';
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 
-export function TopBar() {
+export function TopBar({ coach }: { coach: { displayName: string; email: string } }) {
   const { setCmdOpen, setNavOpen, navOpen, theme, setTheme } = useAppState();
 
   return (
@@ -35,8 +36,8 @@ export function TopBar() {
         >
           <Icon name="menu" />
         </button>
-        <span className="ins-me" aria-label="Maya Reyes">
-          MR
+        <span className="ins-me" aria-label={coach.displayName}>
+          {initialsFor(coach.displayName)}
         </span>
       </div>
     </header>

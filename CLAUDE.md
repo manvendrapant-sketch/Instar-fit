@@ -167,23 +167,146 @@ and should guard its `INSERT` with `WHERE NOT EXISTS (SELECT 1 FROM ... WHERE ha
 safe to re-run if something upstream already partially succeeded. Treat each file as fully
 self-contained and idempotent — never assume a prior file in the sequence actually ran.
 
-Two migrations have gone out this way so far: `0000_special_hellfire_club.sql` (initial schema)
-and `0001_tiny_hobgoblin.sql` (RLS enablement, see `Decisions.md`).
+Three migrations have gone out this way so far: `0000_special_hellfire_club.sql` (initial schema),
+`0001_tiny_hobgoblin.sql` (RLS enablement, see `Decisions.md`), and `0002_dazzling_risque.sql`
+(adds `coaches.password_hash` for the login/signup APIs below).
 
-**Not done / needs the user**: migrations 0000 and 0001 were handed to the user to apply manually
-(see above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming
-the schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet
-(needs either the user's machine, which has normal network access, or hand-written INSERT SQL the
-same way as the migrations). No Stripe test-mode keys are configured yet either. All of this is
-needed before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
+**Not done / needs the user**: migrations 0000-0002 were handed to the user to apply manually (see
+above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming the
+schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet (needs
+either the user's machine, which has normal network access, or hand-written INSERT SQL the same way
+as the migrations). No Stripe test-mode keys are configured yet either. All of this is needed
+before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
 actually met, not just compiles.
+
+## Login / signup APIs (branch `feat/commerce-login-signup`, 2026-09-26)
+
+Coach-only email/password auth — see `Decisions.md` for the full rationale (why coaches only,
+why a JWT cookie instead of a sessions table, what's deliberately out of scope).
+
+- `lib/auth/password.ts` (bcrypt hash/verify), `lib/auth/session.ts` (JWT session cookie,
+  `AUTH_JWT_SECRET` env var — must stay a lazy read, same gotcha as Stripe/DB clients above),
+  `lib/auth/validation.ts` (hand-rolled input validation — no validation library elsewhere in this
+  app, so this doesn't introduce one either).
+- `lib/api/response.ts` — the `{ success, message, data }` / `{ success: false, code, message,
+  fields }` envelope every API route in this app should return, not just auth. Reuse it for any
+  future route rather than inventing a new shape.
+- Routes: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/me`.
+- Not done: email verification, password reset, and rate limiting were out of scope for this ask —
+  flag if any should land before real coaches sign up with this.
+
+### Frontend wired to the login/signup APIs (same branch, later same day)
+
+The `login-feature` branch (Pari/Manvendra's frontend-only sign-up/log-in pages — `app/(auth)/*`,
+`components/{Signup,Login}Form.tsx`, `components/AuthFields.tsx`, `lib/auth.ts`) was merged into
+this branch and wired to the real backend above. It had gone frontend-only deliberately (see its
+own last commit, "Make sign up and log in frontend-only") pending exactly this.
+
+- `lib/auth.ts` (frontend) gained `signup()`/`login()`/`logout()` fetch wrappers and `initialsFor()`;
+  its existing client-side validators still run first for instant feedback, but the backend is the
+  real source of truth. Forms map the API's `fields` onto their own field errors and `toast()` (the
+  existing store-driven toast) for anything else (e.g. `INVALID_CREDENTIALS`).
+- The signup form only ever collected a name, not a handle — rather than add a field, the signup
+  route now derives a unique handle from `displayName` itself (`lib/auth/handle.ts`). `SessionPayload`
+  (`lib/auth/session.ts`) gained `displayName` so pages can render the signed-in coach's name
+  straight off the JWT, no DB round trip.
+- Added `proxy.ts` at the repo root as the route guard (Next 16 renamed `middleware.ts` to
+  `proxy.ts` — see `AGENTS.md`, and don't rediscover this the hard way): redirects a signed-out
+  visitor from `/`, `/clients`, `/grow`, `/business` to `/login`, and redirects an already-signed-in
+  visitor away from `/login`/`/signup` back to `/`. This is also what makes the signup confirmation
+  card's "Log in" link skip straight into the app instead of asking for credentials again — no
+  frontend change needed for that, the proxy's redirect handles it.
+- `(app)/layout.tsx` reads + verifies the session cookie server-side and passes real coach identity
+  into `TopBar`/`Sidebar` (replacing the hardcoded "Maya Reyes"); `Sidebar` gained a working logout
+  button.
+- Verified in a dev server: proxy redirects both directions with a hand-crafted signed cookie, the
+  dashboard rendering that cookie's real name/initials, logout clearing the cookie and re-triggering
+  the guard, and the signup/login forms' success/field-error/toast paths against mocked API
+  responses (screenshotted, not just asserted). The actual DB-backed insert/lookup inside
+  signup/login still can't be exercised from this sandbox — same Postgres-pooler restriction as
+  everything else in this file — so that path is unit-reasoned, not screenshotted.
 
 ### Still open / next up
 
 - Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
-- Database provider (Vercel Postgres vs Neon vs Supabase) not chosen yet.
+- Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
+  Claude Code sandbox cannot reach Postgres" above.
+- Login/signup has no email verification, password reset, or rate limiting yet (see above).
+- Once migrations 0000-0002 are actually applied (see "Not done / needs the user" above), do a real
+  signup → login → logout pass against the live DB from somewhere with real network access — this
+  session could only verify the wiring with a hand-crafted JWT and mocked API responses, not the
+  actual insert/lookup.
+
+### Process audit vs `Workplan-Manvendra.md` (2026-09-26) — gaps found, not yet fixed
+
+Checked this repo's actual state against the workplan's own "Working agreement" rules:
+
+- **"Pari reviews every PR" is not happening.** Checked both merged PRs via the GitHub API: PR #1
+  (`updated-obsidian-plus`) and PR #2 (`feat/commerce-sprint1-foundations`) were each opened and
+  merged by the same author within ~9 seconds of each other, zero reviews on either. If this rule
+  still matters, it needs enforcing (branch protection requiring review) rather than trusting habit.
+- ~~**"Every PR includes... tests for webhook handlers" is not happening either.**~~ **Fixed
+  2026-09-26** — see "Testing (Jest)" below. Every existing route (including the webhook handler
+  the workplan calls out by name) now has a test file, and it's now a standing rule that new
+  functionality ships with tests rather than something to revisit later.
+- The Sprint 1 section above's "not merged anywhere yet... ask before merging/opening a PR" language
+  is stale now that PR #2 already merged straight to `main` same-day — `main` is the de facto merge
+  target for Commerce branches now, whatever the earlier uncertainty says.
+- The workplan's own assumption ("auth... already exist[s]") didn't hold for this repo — there was
+  no auth until this session's login/signup work, which isn't one of the workplan's numbered sprint
+  tasks. Worth reconciling with Manvendra/Pari so the workplan's sprint numbering and this repo's
+  actual state don't drift further apart.
+- Also still pending, unrelated to process: migrations 0000-0002 and `db:seed` unconfirmed as run
+  against the real DB (see above), no Stripe test-mode keys configured, and `AUTH_JWT_SECRET` isn't
+  set in Vercel's project env vars yet — signup/login will 500 in production without it.
+
+## Testing (Jest, added 2026-09-26)
+
+Requested by Manvendra directly, and closes the process-audit gap above. `npm test` /
+`npm run test:watch`. 15 suites, 117 tests, ~4s, covering every route handler that existed at the
+time (`/api/auth/{signup,login,logout,me}`, `/api/webhooks/stripe`), `proxy.ts`, every `lib/auth/*`
+and `lib/commerce/money.ts` module, the two lazy-client gotcha files (`lib/stripe/client.ts`,
+`lib/commerce/db.ts`), and the frontend's `lib/auth.ts`. Not covered: React component rendering
+(`SignupForm`/`LoginForm`/`TopBar`/`Sidebar` etc.) — that needs jsdom + React Testing Library, a
+separate setup this pass didn't add; ask if that's wanted too.
+
+**Going forward: any new functionality (a route, a `lib/` module, a non-trivial component) ships
+with a test file in the same change, not as a follow-up.** This is now a standing rule, not
+something to revisit per-task.
+
+- **Convention**: colocated `*.test.ts` next to the file it tests (e.g. `lib/auth/handle.ts` →
+  `lib/auth/handle.test.ts`), not a separate `__tests__/` tree — makes an untested file obvious.
+- **Setup**: `jest.config.ts` uses `next/jest` (loads `next.config.ts`/`.env*`, SWC transform).
+  `testEnvironment: 'node'` project-wide (Route Handlers and `lib/` code never touch the DOM) —
+  add a per-file `/** @jest-environment jsdom */` docblock if a future test needs it instead.
+  `jest.setup.ts` sets a shared `AUTH_JWT_SECRET` for tests; it deliberately leaves
+  `DATABASE_URL`/`STRIPE_SECRET_KEY` unset since `lib/commerce/db.test.ts` /
+  `lib/stripe/client.test.ts` test the missing-env-var throw themselves.
+- **Two non-obvious config fixes, don't re-discover these**:
+  - `moduleNameMapper` needs an explicit `^@/(.*)$` → `<rootDir>/$1` entry. next/jest's SWC
+    transform resolves the `@/*` alias inside ordinary `import` statements at compile time, so
+    those never needed one — but a runtime string like `jest.mock('@/lib/commerce/db')` is just a
+    value, never transformed, and silently fails to resolve without this.
+  - jose (used by `lib/auth/session.ts`) ships pure ESM with no CJS build, so Jest can't
+    `require()` it without help — but next/jest's own `transformIgnorePatterns` default already
+    excludes `node_modules` except a hardcoded allowlist that doesn't include `jose`, and it only
+    ever *appends* whatever you pass into `config`, never lets you override that default. See
+    `jest.config.ts`'s `resolveConfig()` for the fix (rewrites next's own default patterns in place
+    to add `jose` to the allowlist, after next/jest has built its config, instead of fighting the
+    merge).
+  - `server-only` needed no fix — next/jest already maps it to a no-op by default.
+- **Mocking the DB layer**: `jest.mock('@/lib/commerce/db')` + cast `getDb as jest.Mock` to control
+  what `db.query.<table>.findFirst(...)` / `db.insert(...).values(...).returning()` resolve to per
+  test (see any `app/api/auth/*/route.test.ts` for the pattern). Don't try to faithfully mock
+  Drizzle's query builder generally — a fake shaped to exactly what the route under test calls is
+  enough, and simpler to read.
+- Route Handler tests import the route's exported `POST`/`GET` and call it directly with a plain
+  `Request` (or `NextRequest` for `proxy.ts`) — no server, no HTTP round trip. `next/headers`'s
+  `cookies()` needs `jest.mock('next/headers')` (it throws outside a real request context); a
+  Route Handler's own `NextResponse.json(...).cookies` does not.
 
 ### Working conventions to carry into any Commerce code
 
@@ -195,3 +318,4 @@ actually met, not just compiles.
 - Stripe test mode + test clocks only until the Sprint 6 "hardening & launch" milestone.
 - Branch naming: `feat/commerce-<short-name>` (Manvendra), `feat/storefront-<short-name>` (Pari).
 - Any Stripe client / DB client constructed at module scope must be lazy (see gotcha above).
+- New functionality ships with a test file in the same change — see "Testing (Jest)" above.

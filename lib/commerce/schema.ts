@@ -59,6 +59,8 @@ export const coaches = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     handle: text('handle').notNull(),
     email: text('email').notNull(),
+    // bcrypt hash — never the plaintext password. See lib/auth/password.ts.
+    passwordHash: text('password_hash').notNull(),
     displayName: text('display_name').notNull(),
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
