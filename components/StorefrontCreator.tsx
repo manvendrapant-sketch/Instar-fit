@@ -74,7 +74,23 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     setZones(list);
   }, []);
 
-  if (!hydrated || !storefront) return null;
+  if (!hydrated) return null;
+
+  // `hydrated` only means the load attempt finished — `storefront` staying null means
+  // GET /api/coach/profile itself failed (auth hiccup, transient DB error, ...). Show that
+  // plainly with a retry instead of silently rendering nothing, which just looks like the page
+  // is broken.
+  if (!storefront) {
+    return (
+      <section className="ins-panel ins-offers-missing ins-in" aria-live="polite">
+        <h2>Couldn’t load your storefront</h2>
+        <p>Something went wrong loading your profile. Check your connection and try again.</p>
+        <button type="button" className="ins-btn go" onClick={() => refreshStorefront()}>
+          Try again
+        </button>
+      </section>
+    );
+  }
 
   // Only the fields the form itself edits — never `completed`, which the server derives.
   const set = <K extends Exclude<keyof StorefrontDraft, 'completed'>>(key: K, value: StorefrontDraft[K]) => {
