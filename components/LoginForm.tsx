@@ -1,15 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { PasswordField, TextField } from '@/components/AuthFields';
-import { login, type LoginState } from '@/app/(auth)/login/actions';
-
-const initialState: LoginState = { errors: {}, email: '' };
+import { hasErrors, readLogin, validateLogin, type FieldErrors, type LoginField } from '@/lib/auth';
 
 export function LoginForm() {
-  const [state, formAction, pending] = useActionState(login, initialState);
+  const router = useRouter();
+  const [errors, setErrors] = useState<FieldErrors<LoginField>>({});
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const next = validateLogin(readLogin(new FormData(e.currentTarget)));
+    setErrors(next);
+    // Frontend only: there are no accounts to check against, so a well-formed email and
+    // password go straight to the app's homepage (Today).
+    if (!hasErrors(next)) router.push('/');
+  }
 
   return (
     <section className="ins-panel ins-auth-card ins-in d1" aria-labelledby="login-title">
@@ -18,7 +27,7 @@ export function LoginForm() {
         <p>Welcome back. Your queue is waiting.</p>
       </div>
 
-      <form action={formAction} noValidate className="ins-auth-form">
+      <form onSubmit={onSubmit} noValidate className="ins-auth-form">
         <TextField
           name="email"
           label="Email"
@@ -27,15 +36,14 @@ export function LoginForm() {
           inputMode="email"
           autoComplete="email"
           placeholder="maya@studio.com"
-          defaultValue={state.email}
-          error={state.errors.email}
+          error={errors.email}
           required
         />
-        <PasswordField name="password" label="Password" autoComplete="current-password" error={state.errors.password} />
+        <PasswordField name="password" label="Password" autoComplete="current-password" error={errors.password} />
 
-        <button type="submit" className="ins-btn go ins-auth-submit" disabled={pending}>
-          {pending ? 'Logging in…' : 'Log in'}
-          {!pending && <Icon name="arrow" />}
+        <button type="submit" className="ins-btn go ins-auth-submit">
+          Log in
+          <Icon name="arrow" />
         </button>
       </form>
 

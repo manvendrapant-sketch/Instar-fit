@@ -1,27 +1,34 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { FieldError, PasswordField, TextField } from '@/components/AuthFields';
-import { signup, type SignupState } from '@/app/(auth)/signup/actions';
-
-const initialState: SignupState = { status: 'idle', errors: {}, values: { name: '', email: '' } };
+import { hasErrors, readSignup, validateSignup, type FieldErrors, type SignupField } from '@/lib/auth';
 
 export function SignupForm() {
-  const [state, formAction, pending] = useActionState(signup, initialState);
-  const { errors, values } = state;
+  const [errors, setErrors] = useState<FieldErrors<SignupField>>({});
+  const [created, setCreated] = useState<{ firstName: string; email: string } | null>(null);
 
-  if (state.status === 'success') {
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const values = readSignup(new FormData(e.currentTarget));
+    const next = validateSignup(values);
+    setErrors(next);
+    // Frontend only: nothing is saved; a valid form just shows the confirmation.
+    if (!hasErrors(next)) setCreated({ firstName: values.name.split(/\s+/)[0], email: values.email });
+  }
+
+  if (created) {
     return (
       <section className="ins-panel ins-auth-card ins-auth-done ins-in" aria-live="polite">
         <span className="ins-auth-tick" aria-hidden="true">
           <Icon name="check" />
         </span>
         <span className="ins-label">Account created</span>
-        <h2>Welcome to Instar, {state.firstName}.</h2>
+        <h2>Welcome to Instar, {created.firstName}.</h2>
         <p>
-          Log in with <b>{values.email}</b> to get started.
+          Log in with <b>{created.email}</b> to get started.
         </p>
         <Link href="/login" className="ins-btn go ins-auth-submit">
           Log in
@@ -38,14 +45,13 @@ export function SignupForm() {
         <p>Takes about a minute.</p>
       </div>
 
-      <form action={formAction} noValidate className="ins-auth-form">
+      <form onSubmit={onSubmit} noValidate className="ins-auth-form">
         <TextField
           name="name"
           label="Full name"
           icon="user"
           autoComplete="name"
           placeholder="Maya Reyes"
-          defaultValue={values.name}
           error={errors.name}
           required
         />
@@ -57,7 +63,6 @@ export function SignupForm() {
           inputMode="email"
           autoComplete="email"
           placeholder="maya@studio.com"
-          defaultValue={values.email}
           error={errors.email}
           required
         />
@@ -87,9 +92,9 @@ export function SignupForm() {
         </label>
         <FieldError id="terms-err" message={errors.terms} />
 
-        <button type="submit" className="ins-btn go ins-auth-submit" disabled={pending}>
-          {pending ? 'Creating your account…' : 'Create account'}
-          {!pending && <Icon name="arrow" />}
+        <button type="submit" className="ins-btn go ins-auth-submit">
+          Create account
+          <Icon name="arrow" />
         </button>
       </form>
 
