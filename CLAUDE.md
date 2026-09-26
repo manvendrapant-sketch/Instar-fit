@@ -742,3 +742,21 @@ Both shipped with tests — `lib/offers.test.ts` gained cases for `toUpdateReque
 price-inclusion logic (no `original` → sends price; unchanged → omitted; changed → included).
 `SignupForm`'s button change has no test, same as every other component in this repo (component
 rendering tests still aren't set up — see "Testing (Jest)" above).
+
+**The stale-account-data bug above was only half fixed by `router.refresh()`.** Manvendra reported
+it was still there — the sidebar/topbar (server-rendered, reads the cookie directly) showed the
+new account correctly, but the Offers page didn't, until a hard reload. Root cause: `router.
+refresh()` only re-renders **server** components; `AppStateProvider`'s `offers`/`payouts`/
+`storefront` state lives in a client-side `useState` and is only ever fetched once, in a mount
+effect (`useEffect(() => {...}, [])`) — a client-side navigation (`router.push`) never unmounts
+that provider (it wraps the whole app, in the root `app/layout.tsx`), so that effect never re-runs
+and the previous account's data just sits there in memory. **Fixed properly this time**: login
+(`LoginForm.tsx`), logout (`Sidebar.tsx`), and signup's "Continue" button (`SignupForm.tsx`) now
+all do a full `window.location.href` reload instead of `router.push` (+ the now-insufficient
+`router.refresh()`) — a full reload tears down and rebuilds the entire React tree, `AppStateProvider`
+included, which is the only thing that reliably clears this. Each site has an
+`eslint-disable-next-line @next/next/no-location-assign-relative-destination` — Next's own lint
+rule pushes back on this exact pattern, but the client-side Router Cache it's steering people
+toward is precisely what caused the bug.
+**If a future screen needs to change who's logged in, it needs a full reload too — `router.push`+
+`refresh()` is not enough**, whatever Next's lint rule suggests.

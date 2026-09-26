@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { PasswordField, TextField } from '@/components/AuthFields';
@@ -9,7 +8,6 @@ import { hasErrors, login, readLogin, validateLogin, type FieldErrors, type Logi
 import { useAppState } from '@/lib/store';
 
 export function LoginForm() {
-  const router = useRouter();
   const { toast } = useAppState();
   const [errors, setErrors] = useState<FieldErrors<LoginField>>({});
   const [pending, setPending] = useState(false);
@@ -25,10 +23,13 @@ export function LoginForm() {
     const result = await login(values).finally(() => setPending(false));
 
     if (result.ok) {
-      // refresh() after push forces the destination's server components (the (app) layout reads
-      // the session cookie) to re-render fresh rather than serve a pre-login prefetch.
-      router.push('/');
-      router.refresh();
+      // A full reload, not router.push+refresh: refresh() only re-renders server components, but
+      // AppStateProvider's offers/payouts/storefront state is client-side and only ever fetched
+      // once on mount — logging in as a different account than whoever was last signed in on this
+      // device would otherwise keep showing that previous account's cached data until something
+      // remounts the whole tree. A full reload is the only thing that reliably does.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- deliberate full reload, see above
+      window.location.href = '/';
       return;
     }
     setErrors(result.fieldErrors);

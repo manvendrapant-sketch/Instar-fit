@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { FieldError, PasswordField, TextField } from '@/components/AuthFields';
@@ -9,7 +8,6 @@ import { hasErrors, readSignup, signup, validateSignup, type FieldErrors, type S
 import { useAppState } from '@/lib/store';
 
 export function SignupForm() {
-  const router = useRouter();
   const { toast } = useAppState();
   const [errors, setErrors] = useState<FieldErrors<SignupField>>({});
   const [pending, setPending] = useState(false);
@@ -36,12 +34,13 @@ export function SignupForm() {
   if (created) {
     // Signup already set the session cookie, so this is really "enter the app," not "log in
     // again" — a plain <Link href="/login"> would bounce through proxy.ts's already-signed-in
-    // redirect back to "/", but without the explicit refresh() below Next's client router cache
-    // can still serve a stale pre-signup render of "/" (the same class of bug login/logout's own
-    // router.refresh() calls guard against).
+    // redirect back to "/". A full reload rather than router.push+refresh: refresh() only
+    // re-renders server components, but AppStateProvider's offers/payouts/storefront state is
+    // client-side and only ever fetched once on mount — it would otherwise keep showing whichever
+    // account was last signed in on this device until something remounts the whole tree.
     function enterApp() {
-      router.push('/');
-      router.refresh();
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- deliberate full reload, see above
+      window.location.href = '/';
     }
     return (
       <section className="ins-panel ins-auth-card ins-auth-done ins-in" aria-live="polite">

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { initialsFor, logout } from '@/lib/auth';
 import { Icon, type IconName } from '@/lib/icons';
@@ -20,7 +20,6 @@ const SPACE_COUNTS: Record<string, string> = {
 
 export function Sidebar({ coach }: { coach: { displayName: string; email: string } }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { done, setNavOpen, storefront, offers, payouts, storefrontStatus } = useAppState();
   const [loggingOut, setLoggingOut] = useState(false);
   const left = QUEUE.length - done.length;
@@ -30,9 +29,12 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
   async function onLogout() {
     setLoggingOut(true);
     await logout();
-    // refresh() forces proxy.ts and the (app) layout to see the cleared cookie fresh.
-    router.push('/login');
-    router.refresh();
+    // A full reload, not router.push+refresh: refresh() only re-renders server components, but
+    // AppStateProvider's offers/payouts/storefront state is client-side and only ever fetched
+    // once on mount — a client-side navigation leaves it stale (the previous account's data)
+    // until something remounts the whole tree. A full reload is the only thing that reliably does.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- deliberate full reload, see above
+    window.location.href = '/login';
   }
 
   return (
