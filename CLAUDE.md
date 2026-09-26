@@ -410,6 +410,11 @@ something to revisit per-task.
 - `/lib/commerce/types.ts` is the one contract; flag any change to it rather than editing quietly.
 - Stripe test mode + test clocks only until the Sprint 6 "hardening & launch" milestone.
 - Branch naming: `feat/commerce-<short-name>` (Manvendra), `feat/storefront-<short-name>` (Pari).
+  **A Claude Code session's own harness-assigned branch (e.g. `claude/<adjective>-<name>-<id>`) is
+  not this** — rename it to the proper `feat/commerce-<short-name>` (or `feat/storefront-<short-name>`
+  for Pari's work) before finishing/handing off, don't leave Commerce work sitting on the generic
+  session name. Confirmed 2026-09-26 after doing exactly that rename (harness branch →
+  `feat/commerce-storefront-apis`) at Manvendra's explicit request.
 - Any Stripe client / DB client constructed at module scope must be lazy (see gotcha above).
 - New functionality ships with a test file in the same change — see "Testing (Jest)" above.
 
