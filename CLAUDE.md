@@ -167,23 +167,43 @@ and should guard its `INSERT` with `WHERE NOT EXISTS (SELECT 1 FROM ... WHERE ha
 safe to re-run if something upstream already partially succeeded. Treat each file as fully
 self-contained and idempotent — never assume a prior file in the sequence actually ran.
 
-Two migrations have gone out this way so far: `0000_special_hellfire_club.sql` (initial schema)
-and `0001_tiny_hobgoblin.sql` (RLS enablement, see `Decisions.md`).
+Three migrations have gone out this way so far: `0000_special_hellfire_club.sql` (initial schema),
+`0001_tiny_hobgoblin.sql` (RLS enablement, see `Decisions.md`), and `0002_dazzling_risque.sql`
+(adds `coaches.password_hash` for the login/signup APIs below).
 
-**Not done / needs the user**: migrations 0000 and 0001 were handed to the user to apply manually
-(see above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming
-the schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet
-(needs either the user's machine, which has normal network access, or hand-written INSERT SQL the
-same way as the migrations). No Stripe test-mode keys are configured yet either. All of this is
-needed before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
+**Not done / needs the user**: migrations 0000-0002 were handed to the user to apply manually (see
+above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming the
+schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet (needs
+either the user's machine, which has normal network access, or hand-written INSERT SQL the same way
+as the migrations). No Stripe test-mode keys are configured yet either. All of this is needed
+before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
 actually met, not just compiles.
+
+## Login / signup APIs (branch `login/signup-APIs`, 2026-09-26)
+
+Coach-only email/password auth — see `Decisions.md` for the full rationale (why coaches only,
+why a JWT cookie instead of a sessions table, what's deliberately out of scope).
+
+- `lib/auth/password.ts` (bcrypt hash/verify), `lib/auth/session.ts` (JWT session cookie,
+  `AUTH_JWT_SECRET` env var — must stay a lazy read, same gotcha as Stripe/DB clients above),
+  `lib/auth/validation.ts` (hand-rolled input validation — no validation library elsewhere in this
+  app, so this doesn't introduce one either).
+- `lib/api/response.ts` — the `{ success, message, data }` / `{ success: false, code, message,
+  fields }` envelope every API route in this app should return, not just auth. Reuse it for any
+  future route rather than inventing a new shape.
+- Routes: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/me`.
+- Not done: email verification, password reset, and rate limiting were out of scope for this ask —
+  flag if any should land before real coaches sign up with this.
 
 ### Still open / next up
 
 - Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
-- Database provider (Vercel Postgres vs Neon vs Supabase) not chosen yet.
+- Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
+  Claude Code sandbox cannot reach Postgres" above.
+- Login/signup has no email verification, password reset, or rate limiting yet (see above).
 
 ### Working conventions to carry into any Commerce code
 

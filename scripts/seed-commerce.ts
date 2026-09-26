@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { getDb } from '../lib/commerce/db';
+import { hashPassword } from '../lib/auth/password';
 import { clients, coaches, connectedAccounts, offers, prices } from '../lib/commerce/schema';
 
 /**
@@ -12,11 +13,15 @@ async function main() {
   const db = getDb();
   console.log('Seeding commerce test data...');
 
+  // Test-mode credentials only — this coach is seed data, never a real account.
+  const passwordHash = await hashPassword('maya-test-password');
+
   const [coach] = await db
     .insert(coaches)
     .values({
       handle: 'maya-test',
       email: 'maya+test@instar.dev',
+      passwordHash,
       displayName: 'Maya Reyes',
       bio: 'Strength coach for busy professionals. 1:1 and small-group programming.',
     })
@@ -93,7 +98,10 @@ async function main() {
     })
     .onConflictDoNothing();
 
-  console.log(`Seeded coach "${coachRow.handle}" with ${offerSeeds.length} offers.`);
+  console.log(
+    `Seeded coach "${coachRow.handle}" with ${offerSeeds.length} offers. ` +
+      `Test login: ${coachRow.email} / maya-test-password`,
+  );
   process.exit(0);
 }
 

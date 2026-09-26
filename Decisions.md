@@ -5,6 +5,37 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Coach login/signup APIs added (branch `login/signup-APIs`)
+
+Requested by Manvendra: real login/signup endpoints, backed by the now-connected Supabase
+Postgres instance, with response messages the frontend can show directly.
+
+**Who logs in**: coaches only, for now. The `coaches` table is the only account-holding table in
+the schema (per the RLS entry below, "this repo has no auth at all" until now); clients are
+Stripe-customer records tied to a coach, not login accounts — self-serve client auth is storefront
+scope (Pari's workplan), not this change.
+
+**Mechanism**:
+- `coaches.password_hash` (new column, migration `0002_dazzling_risque.sql`) — bcrypt (`bcryptjs`,
+  12 rounds), never the plaintext password. See `lib/auth/password.ts`.
+- Sessions are a signed JWT (`jose`, HS256, 7-day expiry) in an `httpOnly`/`sameSite=lax` cookie
+  (`instar_session`) — not a DB-backed session table. Signed with `AUTH_JWT_SECRET` (new env var,
+  see `.env.example`). Simplest thing that works for Sprint 1; revisit for revocable sessions
+  (a sessions table, or short-lived tokens + refresh) once there's a reason to invalidate a
+  session before its cookie expires.
+- Routes: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/me`. All return the shared `{ success, message, data | (code, fields) }` envelope
+  in `lib/api/response.ts` so the frontend has one shape to branch on across every endpoint, not
+  just these four.
+- No email verification, password reset, or rate limiting yet — out of scope for "login/signup
+  APIs" as asked; flag if any of these should land before this goes live.
+
+**Same sandbox-can't-reach-Postgres constraint hit again**: migration `0002` was generated here
+but applied via the same hand-off-SQL workaround as `0000`/`0001` (see that section below) — this
+session confirmed the same thing again (TCP to the Supabase pooler's `:6543` times out, only `:443`
+egresses). The combined hand-off SQL was written for the user to paste into Supabase's SQL Editor,
+not committed to the repo.
+
 ## 2026-09-26 — Row Level Security enabled on all commerce tables, no policies yet
 
 Made by Manvendra. All 11 Sprint-1 tables now have RLS turned on (`.enableRLS()` in
