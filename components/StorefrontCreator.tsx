@@ -6,11 +6,23 @@ import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
 import {
+  addSpecialty,
   AVATAR_MAX_BYTES,
   BIO_MAX,
+  COACHING_MODES,
+  DEFAULT_TIME_ZONE,
+  detectTimeZone,
   handleStatus,
+  locationLine,
+  LOCATION_MAX,
   normalizeHandle,
+  SPECIALTIES,
+  SPECIALTIES_MAX,
+  SPECIALTY_MAX_LEN,
+  timeZoneLabel,
   validateStorefront,
+  withStorefrontDefaults,
+  type CoachingMode,
   type StorefrontDraft,
   type StorefrontField,
 } from '@/lib/storefront';
@@ -22,21 +34,39 @@ function initials(name: string) {
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
   const { storefront, saveStorefront, toast } = useAppState();
-  const [draft, setDraft] = useState<StorefrontDraft>({ ...defaults, bio: '', avatarUrl: null });
+  // Time zone starts as a fixed default so server and client render the same markup; the
+  // browser's own zone replaces it after mount.
+  const [draft, setDraft] = useState<StorefrontDraft>(() => withStorefrontDefaults({ ...defaults, timeZone: DEFAULT_TIME_ZONE }));
+  const [zones, setZones] = useState<string[]>([]);
+  const [customSpecialty, setCustomSpecialty] = useState('');
   const [errors, setErrors] = useState<Partial<Record<StorefrontField, string>>>({});
   const [editing, setEditing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Prefill from a saved storefront once the store hydrates (for "Edit details").
+  // Prefill from a saved storefront once the store hydrates (for "Edit details"); otherwise
+  // use this device's time zone.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (storefront) setDraft(storefront);
+    else setDraft((d) => ({ ...d, timeZone: detectTimeZone() }));
   }, [storefront]);
+
+  // The zone list comes from the browser, after mount, so it can't differ between server and client.
+  useEffect(() => {
+    let list: string[] = [];
+    try {
+      list = Intl.supportedValuesOf('timeZone');
+    } catch {
+      list = [];
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setZones(list);
+  }, []);
 
   const set = <K extends keyof StorefrontDraft>(key: K, value: StorefrontDraft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
     // Editing a field clears its error; the next submit re-checks everything.
-    const field: StorefrontField = key === 'avatarUrl' ? 'avatar' : key;
+    const field: StorefrontField = key === 'avatarUrl' ? 'avatar' : key === 'coachingMode' ? 'location' : key;
     setErrors((x) => (x[field] ? { ...x, [field]: undefined } : x));
   };
 
@@ -62,7 +92,12 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const clean = { ...draft, displayName: draft.displayName.trim(), bio: draft.bio?.trim() || null };
+    const clean = {
+      ...draft,
+      displayName: draft.displayName.trim(),
+      bio: draft.bio?.trim() || null,
+      location: draft.location?.trim() || null,
+    };
     const next = validateStorefront(clean);
     setErrors(next);
     if (Object.keys(next).length > 0) return;
@@ -70,6 +105,16 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     setEditing(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
+  const toggleSpecialty = (s: string) =>
+    set('specialties', draft.specialties.includes(s) ? draft.specialties.filter((x) => x !== s) : addSpecialty(draft.specialties, s));
+  const addCustom = () => {
+    set('specialties', addSpecialty(draft.specialties, customSpecialty));
+    setCustomSpecialty('');
+  };
+  const full = draft.specialties.length >= SPECIALTIES_MAX;
+  const customs = draft.specialties.filter((s) => !(SPECIALTIES as readonly string[]).includes(s));
+  const zoneOptions = zones.includes(draft.timeZone) ? zones : [draft.timeZone, ...zones];
 
   const status = handleStatus(draft.handle);
   const bioLen = (draft.bio ?? '').length;
@@ -194,6 +239,116 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
                 </span>
                 <FieldError id="bio-err" message={errors.bio} />
               </label>
+
+              <fieldset className="ins-field ins-sf-fieldset" aria-describedby="spec-hint">
+                <legend className="ins-field-l">
+                  Coaching specialty <span className="ins-sf-opt">Pick up to {SPECIALTIES_MAX}</span>
+                </legend>
+                <div className="ins-sf-chips">
+                  {[...SPECIALTIES, ...customs].map((s) => {
+                    const on = draft.specialties.includes(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        className={`ins-sf-chip ${on ? 'on' : ''}`}
+                        aria-pressed={on}
+                        disabled={!on && full}
+                        onClick={() => toggleSpecialty(s)}
+                      >
+                        {on && <Icon name="check" className="ins-i sm" />}
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="ins-sf-custom">
+                  <span className="ins-input">
+                    <Icon name="plus" />
+                    <input
+                      aria-label="Add your own specialty"
+                      placeholder={full ? `You’ve picked ${SPECIALTIES_MAX}` : 'Add your own, e.g. Kettlebell sport'}
+                      value={customSpecialty}
+                      maxLength={SPECIALTY_MAX_LEN}
+                      disabled={full}
+                      onChange={(e) => setCustomSpecialty(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addCustom();
+                        }
+                      }}
+                    />
+                    <button type="button" className="ins-btn quiet ins-sf-custom-add" onClick={addCustom} disabled={full || !customSpecialty.trim()}>
+                      Add
+                    </button>
+                  </span>
+                </div>
+                {errors.specialties ? (
+                  <FieldError id="specialties-err" message={errors.specialties} />
+                ) : (
+                  <span className="ins-field-hint" id="spec-hint">
+                    Shown under your name, so clients know straight away if you’re for them.
+                  </span>
+                )}
+              </fieldset>
+
+              <fieldset className="ins-field ins-sf-fieldset">
+                <legend className="ins-field-l">How you coach</legend>
+                <div className="ins-sf-seg" role="radiogroup" aria-label="How you coach">
+                  {(Object.keys(COACHING_MODES) as CoachingMode[]).map((m) => (
+                    <label key={m} className={`ins-sf-seg-it ${draft.coachingMode === m ? 'on' : ''}`}>
+                      <input
+                        type="radio"
+                        name="coachingMode"
+                        value={m}
+                        checked={draft.coachingMode === m}
+                        onChange={() => set('coachingMode', m)}
+                      />
+                      {COACHING_MODES[m]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="ins-sf-two">
+                <TextField
+                  name="location"
+                  label={draft.coachingMode === 'online' ? 'Where you’re based (optional)' : 'Where you coach'}
+                  icon="network"
+                  autoComplete="address-level2"
+                  placeholder="Austin, TX"
+                  maxLength={LOCATION_MAX + 20}
+                  value={draft.location ?? ''}
+                  onChange={(e) => set('location', e.target.value)}
+                  error={errors.location}
+                />
+                <label className="ins-field">
+                  <span className="ins-field-l">Time zone</span>
+                  <span className={`ins-input ins-select ${errors.timeZone ? 'bad' : ''}`}>
+                    <Icon name="today" />
+                    <select
+                      name="timeZone"
+                      value={draft.timeZone}
+                      onChange={(e) => set('timeZone', e.target.value)}
+                      aria-describedby="tz-hint"
+                    >
+                      {zoneOptions.map((z) => (
+                        <option key={z} value={z}>
+                          {timeZoneLabel(z)}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                  {errors.timeZone ? (
+                    <FieldError id="timeZone-err" message={errors.timeZone} />
+                  ) : (
+                    <span className="ins-field-hint" id="tz-hint">
+                      Set from this device. Sessions and check-ins use it.
+                    </span>
+                  )}
+                </label>
+              </div>
             </div>
 
             <div className="ins-sf-foot">
@@ -278,6 +433,17 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
                 )}
               </span>
               <b className={`ins-sf-name ${shown.displayName ? '' : 'ph'}`}>{shown.displayName || 'Your name'}</b>
+              {shown.specialties.length > 0 && (
+                <div className="ins-sf-tags">
+                  {shown.specialties.map((s) => (
+                    <span key={s}>{s}</span>
+                  ))}
+                </div>
+              )}
+              <span className="ins-sf-where">
+                <Icon name="network" className="ins-i sm" />
+                {locationLine(shown)}
+              </span>
               <p className={`ins-sf-bio ${shown.bio ? '' : 'ph'}`}>{shown.bio || 'A line about who you coach and how.'}</p>
               <span className="ins-label ins-sf-offers-l">Offers</span>
               <div className="ins-sf-empty">

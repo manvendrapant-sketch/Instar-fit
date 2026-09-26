@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QUEUE } from './data';
-import type { StorefrontDraft } from './storefront';
+import { withStorefrontDefaults, type StorefrontDraft } from './storefront';
 
 type Theme = 'dark' | 'light';
 
@@ -66,7 +66,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setThemeState(readStorage<Theme>('ins_theme', 'dark'));
     setDone(savedDone);
-    setStorefront(readStorage<StorefrontDraft | null>('ins_storefront', null));
+    const savedStorefront = readStorage<StorefrontDraft | null>('ins_storefront', null);
+    setStorefront(savedStorefront ? withStorefrontDefaults(savedStorefront) : null);
     setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);

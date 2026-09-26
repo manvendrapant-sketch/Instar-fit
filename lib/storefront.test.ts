@@ -1,6 +1,27 @@
-import { BIO_MAX, handleStatus, normalizeHandle, validateStorefront, type StorefrontDraft } from './storefront';
+import {
+  addSpecialty,
+  BIO_MAX,
+  handleStatus,
+  isTimeZone,
+  locationLine,
+  normalizeHandle,
+  SPECIALTIES_MAX,
+  timeZoneLabel,
+  validateStorefront,
+  withStorefrontDefaults,
+  type StorefrontDraft,
+} from './storefront';
 
-const valid: StorefrontDraft = { handle: 'maya-reyes', displayName: 'Maya Reyes', bio: null, avatarUrl: null };
+const valid: StorefrontDraft = {
+  handle: 'maya-reyes',
+  displayName: 'Maya Reyes',
+  bio: null,
+  avatarUrl: null,
+  specialties: ['Strength'],
+  location: null,
+  coachingMode: 'online',
+  timeZone: 'America/Chicago',
+};
 
 describe('normalizeHandle', () => {
   it('lowercases, trims and turns spaces into hyphens', () => {
@@ -48,5 +69,60 @@ describe('validateStorefront', () => {
   it('allows a bio up to the limit and rejects one over it', () => {
     expect(validateStorefront({ ...valid, bio: 'a'.repeat(BIO_MAX) })).toEqual({});
     expect(validateStorefront({ ...valid, bio: 'a'.repeat(BIO_MAX + 1) }).bio).toBeDefined();
+  });
+});
+
+describe('specialties', () => {
+  it('requires at least one and allows up to the max', () => {
+    expect(validateStorefront({ ...valid, specialties: [] }).specialties).toMatch(/at least one/);
+    expect(validateStorefront({ ...valid, specialties: ['A', 'B', 'C'] })).toEqual({});
+    expect(validateStorefront({ ...valid, specialties: ['A', 'B', 'C', 'D'] }).specialties).toMatch(/up to 3/);
+    expect(validateStorefront({ ...valid, specialties: ['x'.repeat(25)] }).specialties).toBeDefined();
+  });
+
+  it('adds trimmed specialties and skips blanks, case-insensitive duplicates and overflow', () => {
+    expect(addSpecialty([], '  Kettlebell   sport ')).toEqual(['Kettlebell sport']);
+    expect(addSpecialty(['Strength'], 'strength')).toEqual(['Strength']);
+    expect(addSpecialty(['Strength'], '   ')).toEqual(['Strength']);
+    const full = ['A', 'B', 'C'];
+    expect(full).toHaveLength(SPECIALTIES_MAX);
+    expect(addSpecialty(full, 'D')).toBe(full);
+  });
+});
+
+describe('location and time zone', () => {
+  it('limits location length', () => {
+    expect(validateStorefront({ ...valid, location: 'Austin, TX' })).toEqual({});
+    expect(validateStorefront({ ...valid, location: 'x'.repeat(61) }).location).toBeDefined();
+  });
+
+  it('writes the location line with how they coach', () => {
+    expect(locationLine({ location: ' Austin, TX ', coachingMode: 'in_person' })).toBe('Austin, TX · In person');
+    expect(locationLine({ location: null, coachingMode: 'both' })).toBe('Online and in person');
+  });
+
+  it('accepts real IANA zones only', () => {
+    expect(isTimeZone('America/Chicago')).toBe(true);
+    expect(isTimeZone('Asia/Kolkata')).toBe(true);
+    expect(isTimeZone('Mars/Olympus_Mons')).toBe(false);
+    expect(validateStorefront({ ...valid, timeZone: 'nope' }).timeZone).toBeDefined();
+  });
+
+  it('labels a zone with its offset on a given date', () => {
+    expect(timeZoneLabel('America/New_York', new Date('2026-01-15T12:00:00Z'))).toBe('America/New York (GMT-5)');
+    expect(timeZoneLabel('America/New_York', new Date('2026-07-15T12:00:00Z'))).toBe('America/New York (GMT-4)');
+    expect(timeZoneLabel('Asia/Kolkata', new Date('2026-07-15T12:00:00Z'))).toBe('Asia/Kolkata (GMT+5:30)');
+  });
+});
+
+describe('withStorefrontDefaults', () => {
+  it('fills fields missing from storefronts saved before they existed', () => {
+    const old = withStorefrontDefaults({ handle: 'maya', displayName: 'Maya', bio: 'Hi', avatarUrl: null });
+    expect(old).toMatchObject({ handle: 'maya', bio: 'Hi', specialties: [], location: null, coachingMode: 'online' });
+    expect(isTimeZone(old.timeZone)).toBe(true);
+  });
+
+  it('keeps values that are already there', () => {
+    expect(withStorefrontDefaults(valid)).toEqual(valid);
   });
 });
