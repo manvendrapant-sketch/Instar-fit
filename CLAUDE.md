@@ -94,6 +94,12 @@ See `Decisions.md` for the full rationale. Summary:
 
 ### Sprint 1 — done in this session (2026-09-26)
 
+Lives on branch `feat/commerce-sprint1-foundations` (pushed, branched from
+`updated-obsidian-plus` since that was the tip at the time — not merged anywhere yet; **merge
+target for Commerce branches is undecided**: `main` is still just the empty initial commit, so
+don't assume Commerce should route through the dashboard's `updated-obsidian-plus` branch either.
+Ask before merging/opening a PR).
+
 Implemented directly (repo target was confirmed, so no need to wait):
 - `lib/commerce/schema.ts` — Drizzle ORM schema for all 11 Sprint-1 tables (`coaches`,
   `connected_accounts`, `offers`, `prices`, `clients`, `subscriptions`, `payments`, `refunds`,
