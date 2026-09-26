@@ -24,6 +24,11 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
     // PgBouncer in transaction mode doesn't support prepared statements. Harmless against a
     // direct connection too, so it's left on unconditionally rather than branching on the URL.
     prepare: false,
+    // postgres-js defaults to `ssl: false` and our DATABASE_URL has no `?sslmode=` query param to
+    // override that — but Supabase rejects unencrypted external connections outright, on both the
+    // pooler and the direct port. Without this every query throws (seen in production 2026-09-26:
+    // signup/login 500ing) rather than merely being insecure, so this isn't optional hardening.
+    ssl: 'require',
   });
   client = drizzle(sql, { schema });
   return client;

@@ -189,4 +189,27 @@ describe('signup / login / logout (fetch wrappers)', () => {
     await logout();
     expect(global.fetch).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
   });
+
+  // A bare 500 (uncaught server error, a proxy's own error page, ...) has no JSON body to parse.
+  // Before the fix, that made res.json() throw, which made signup()/login() throw, which left a
+  // form's submit button stuck disabled forever with no message shown — reported from production.
+  it('signup() resolves to a generic failure instead of throwing when the response body is not JSON', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.reject(new SyntaxError('Unexpected token')) }) as typeof fetch;
+    const result = await signup({ name: 'Maya', email: 'maya@studio.com', password: 'x', confirm: 'x', terms: true });
+    expect(result).toEqual({
+      ok: false,
+      message: 'Something went wrong. Please try again.',
+      fieldErrors: {},
+    });
+  });
+
+  it('login() resolves to a generic failure instead of throwing when fetch itself rejects (network failure)', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new TypeError('Failed to fetch')) as typeof fetch;
+    const result = await login({ email: 'maya@studio.com', password: 'x' });
+    expect(result).toEqual({
+      ok: false,
+      message: 'Something went wrong. Please try again.',
+      fieldErrors: {},
+    });
+  });
 });

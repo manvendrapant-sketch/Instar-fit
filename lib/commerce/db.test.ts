@@ -3,7 +3,10 @@
 // scripts/seed-commerce.ts and drizzle-kit both load this file directly via tsx, outside Next's
 // own bundler.
 
-export {}; // Forces module scope — see the identical comment in lib/stripe/client.test.ts.
+// drizzle's postgres-js driver eagerly reaches into `client.options.{parsers,serializers}`
+// (to install transparent parsers for a few OIDs), so the stub needs to have those, not just be
+// a bare object — otherwise `drizzle(sql, ...)` itself throws before getDb() even returns.
+jest.mock('postgres', () => jest.fn(() => ({ options: { parsers: {}, serializers: {} } })));
 
 const originalEnv = process.env;
 
@@ -37,5 +40,16 @@ describe('getDb', () => {
     process.env.DATABASE_URL = 'postgres://user:pass@localhost:5432/db';
     const { getDb } = await import('@/lib/commerce/db');
     expect(getDb()).toBe(getDb());
+  });
+
+  it('requires TLS — Supabase rejects unencrypted external connections outright', async () => {
+    process.env.DATABASE_URL = 'postgres://user:pass@localhost:5432/db';
+    const { getDb } = await import('@/lib/commerce/db');
+    getDb();
+    const postgres = (await import('postgres')).default as unknown as jest.Mock;
+    expect(postgres).toHaveBeenCalledWith(
+      'postgres://user:pass@localhost:5432/db',
+      expect.objectContaining({ ssl: 'require' }),
+    );
   });
 });

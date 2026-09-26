@@ -21,8 +21,7 @@ export function SignupForm() {
     if (hasErrors(next)) return;
 
     setPending(true);
-    const result = await signup(values);
-    setPending(false);
+    const result = await signup(values).finally(() => setPending(false));
 
     if (result.ok) {
       setCreated({ firstName: values.name.split(/\s+/)[0], email: values.email });

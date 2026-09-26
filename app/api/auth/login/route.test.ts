@@ -26,6 +26,10 @@ function mockDb(coach: object | undefined) {
   (getDb as jest.Mock).mockReturnValue({ query: { coaches: { findFirst: jest.fn().mockResolvedValue(coach) } } });
 }
 
+function mockDbThrows(error: unknown) {
+  (getDb as jest.Mock).mockReturnValue({ query: { coaches: { findFirst: jest.fn().mockRejectedValue(error) } } });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
 });
@@ -91,5 +95,16 @@ describe('POST /api/auth/login', () => {
     const cookie = res.cookies.get(SESSION_COOKIE_NAME);
     const session = await verifySessionToken(cookie!.value);
     expect(session).toMatchObject({ coachId: COACH.id, email: COACH.email, handle: COACH.handle });
+  });
+
+  it('returns 500 INTERNAL_ERROR, not a bare uncaught error, when the DB is unreachable', async () => {
+    mockDbThrows(new Error('connection terminated unexpectedly'));
+    const res = await POST(postRequest({ email: COACH.email, password: 'supersecret1' }));
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      success: false,
+      code: 'INTERNAL_ERROR',
+      message: 'Something went wrong. Please try again.',
+    });
   });
 });

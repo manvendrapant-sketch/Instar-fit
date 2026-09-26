@@ -5,6 +5,48 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Fixed live signup/login 500s: TLS to Supabase, uncaught route errors
+
+Reported by Manvendra directly, hours after the merge/deploy above. Full detail in `CLAUDE.md`'s
+"Two real bugs found from that gap" — this entry is the "why" for the two calls made fixing it.
+
+**`ssl: 'require'` is now unconditional, not branched on the connection string.** `postgres-js`
+would silently accept an unencrypted connection to anything that allows one; the failure only
+shows up against something that doesn't, like Supabase. Rejected: making it conditional on
+detecting a Supabase host in `DATABASE_URL`, which would just recreate the exact bug this was for
+the next provider swap. Any Postgres worth using accepts an SSL connection, so there's no real
+downside to requiring it everywhere rather than special-casing one provider.
+
+**Route handlers now catch and log DB errors instead of letting them surface as bare framework
+500s.** The alternative — leaving it uncaught and relying on `get_runtime_logs` to diagnose it —
+turned out to not even be available to this session (403, permissions, see `CLAUDE.md`). Even
+where log access works, an uncaught 500 still ships a frontend that can't show the visitor
+anything. Catching at the route boundary and returning the same `apiError` envelope as every other
+failure path fixes both problems with one change, not two.
+
+---
+
+## 2026-09-26 — Commerce/auth merged to `main`, pushed straight (no PR)
+
+Requested by Manvendra directly ("merge this into main and publish on vercel"). See `CLAUDE.md`'s
+"Merged to `main` and deployed" section for the mechanics (env vars set, redeploy, what couldn't be
+verified from the sandbox). This entry is the "why", not the "what".
+
+**Pushed directly to `main`, no PR opened.** Not asked for, and this repo's own process audit
+(same day, earlier) already found that PRs here get self-merged within seconds with zero review —
+opening one here would have been a formality adding a paper trail, not actual review. If real PR
+review starts happening (branch protection, Pari actually reviewing), revisit this for future
+merges; it was the right call for this one given the audit findings, not a new standing exception
+to "ask before opening a PR."
+
+**Deployed with `DATABASE_URL` and `AUTH_JWT_SECRET` set, but without confirming migrations are
+applied.** The alternative was to hold the deploy until someone confirmed the migrations, but
+Manvendra's ask was unambiguous ("publish on vercel"), the build itself doesn't depend on the
+schema existing (both are lazy reads, by design — see the gotcha earlier in this file), and a
+broken signup because of a DB error is a far easier problem to diagnose and fix live than an
+unpublished branch nobody can look at. Trade-off made explicit rather than silently deployed and
+called done: `CLAUDE.md` flags this as the one thing to verify next, not buried as an assumption.
+
 ## 2026-09-26 — Jest added; tests now required for new functionality
 
 Requested by Manvendra directly, and closes a gap this repo's own process audit flagged earlier
