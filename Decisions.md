@@ -5,6 +5,31 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Frontend wired to the login/signup APIs, handle dropped from signup
+
+Requested by Manvendra: pull the `login-feature` frontend branch (Pari/Manvendra's sign-up/log-in
+pages, built frontend-only pending a real backend) and make it work end to end against the APIs
+below.
+
+**Handle is no longer a signup input.** The frontend's signup form only ever asked for a name —
+adding a handle field would have meant redesigning an already-built, approved form for a detail
+(the storefront URL slug) a new coach has no reason to think about at signup. Instead the handle is
+now derived server-side from `displayName` (slugify, disambiguate with `-2`, `-3`, ... on
+collision — `lib/auth/handle.ts`). Rejected: asking for it up front (extra friction, no clear
+benefit at signup time) and defaulting to an opaque id (bad for a public storefront URL). A coach
+can rename their handle later once there's a settings page for it — not built yet.
+
+**Session JWT gained `displayName`.** It was already carrying `coachId`/`email`/`handle`; adding
+the display name too means the dashboard chrome (top bar, sidebar) can render the signed-in coach's
+name without a DB round trip on every page load. None of these are secret, so this cost nothing.
+
+**Route protection is `proxy.ts`, not a client-side check.** Next.js 16 renamed `middleware.ts` to
+`proxy.ts` (functionally identical, see `AGENTS.md`) — a session cookie is verified there before any
+of `/`, `/clients`, `/grow`, `/business` render, and the same check redirects an already-signed-in
+visitor away from `/login`/`/signup`. Rejected: gating in the `(app)` layout alone, which would
+still flash protected content before redirecting on the client, or checking auth per-page, which
+doesn't scale as more protected routes get added.
+
 ## 2026-09-26 — Coach login/signup APIs added (branch `feat/commerce-login-signup`)
 
 Requested by Manvendra: real login/signup endpoints, backed by the now-connected Supabase

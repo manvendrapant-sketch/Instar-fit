@@ -196,17 +196,49 @@ why a JWT cookie instead of a sessions table, what's deliberately out of scope).
 - Not done: email verification, password reset, and rate limiting were out of scope for this ask —
   flag if any should land before real coaches sign up with this.
 
+### Frontend wired to the login/signup APIs (same branch, later same day)
+
+The `login-feature` branch (Pari/Manvendra's frontend-only sign-up/log-in pages — `app/(auth)/*`,
+`components/{Signup,Login}Form.tsx`, `components/AuthFields.tsx`, `lib/auth.ts`) was merged into
+this branch and wired to the real backend above. It had gone frontend-only deliberately (see its
+own last commit, "Make sign up and log in frontend-only") pending exactly this.
+
+- `lib/auth.ts` (frontend) gained `signup()`/`login()`/`logout()` fetch wrappers and `initialsFor()`;
+  its existing client-side validators still run first for instant feedback, but the backend is the
+  real source of truth. Forms map the API's `fields` onto their own field errors and `toast()` (the
+  existing store-driven toast) for anything else (e.g. `INVALID_CREDENTIALS`).
+- The signup form only ever collected a name, not a handle — rather than add a field, the signup
+  route now derives a unique handle from `displayName` itself (`lib/auth/handle.ts`). `SessionPayload`
+  (`lib/auth/session.ts`) gained `displayName` so pages can render the signed-in coach's name
+  straight off the JWT, no DB round trip.
+- Added `proxy.ts` at the repo root as the route guard (Next 16 renamed `middleware.ts` to
+  `proxy.ts` — see `AGENTS.md`, and don't rediscover this the hard way): redirects a signed-out
+  visitor from `/`, `/clients`, `/grow`, `/business` to `/login`, and redirects an already-signed-in
+  visitor away from `/login`/`/signup` back to `/`. This is also what makes the signup confirmation
+  card's "Log in" link skip straight into the app instead of asking for credentials again — no
+  frontend change needed for that, the proxy's redirect handles it.
+- `(app)/layout.tsx` reads + verifies the session cookie server-side and passes real coach identity
+  into `TopBar`/`Sidebar` (replacing the hardcoded "Maya Reyes"); `Sidebar` gained a working logout
+  button.
+- Verified in a dev server: proxy redirects both directions with a hand-crafted signed cookie, the
+  dashboard rendering that cookie's real name/initials, logout clearing the cookie and re-triggering
+  the guard, and the signup/login forms' success/field-error/toast paths against mocked API
+  responses (screenshotted, not just asserted). The actual DB-backed insert/lookup inside
+  signup/login still can't be exercised from this sandbox — same Postgres-pooler restriction as
+  everything else in this file — so that path is unit-reasoned, not screenshotted.
+
 ### Still open / next up
 
-- **Waiting on Manvendra to wire the frontend to these login/signup APIs before picking up the
-  next task** — flagged 2026-09-26 so the next session doesn't have to re-derive this. Once that's
-  done, come back to the audit findings below rather than starting fresh work blind to them.
 - Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
   Claude Code sandbox cannot reach Postgres" above.
 - Login/signup has no email verification, password reset, or rate limiting yet (see above).
+- Once migrations 0000-0002 are actually applied (see "Not done / needs the user" above), do a real
+  signup → login → logout pass against the live DB from somewhere with real network access — this
+  session could only verify the wiring with a hand-crafted JWT and mocked API responses, not the
+  actual insert/lookup.
 
 ### Process audit vs `Workplan-Manvendra.md` (2026-09-26) — gaps found, not yet fixed
 
