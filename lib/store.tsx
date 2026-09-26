@@ -2,12 +2,15 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QUEUE } from './data';
-import { withStorefrontDefaults, type StorefrontDraft } from './storefront';
-import { moveOffer, upsertOffer, type OfferDraft } from './offers';
-import type { OnboardingStatus } from './commerce/types';
-import { NOT_STARTED } from './payouts';
+import { fetchProfile } from './storefront';
+import { fetchOffers } from './offers';
+import { fetchOnboardingStatus } from './payouts';
+import type { CoachOfferSummary, CoachProfile, OnboardingStatus, StorefrontStatus } from './commerce/types';
+import { apiFetch } from './api-client';
 
 type Theme = 'dark' | 'light';
+
+const NOT_STARTED: OnboardingStatus = { status: 'not_started', chargesEnabled: false, payoutsEnabled: false, requirementsDue: [] };
 
 interface AppState {
   theme: Theme;
@@ -24,24 +27,26 @@ interface AppState {
   setNavOpen: (v: boolean) => void;
   cmdOpen: boolean;
   setCmdOpen: (v: boolean) => void;
-  /** The coach's storefront, or null until they create one. Frontend only: kept in this browser. */
-  storefront: StorefrontDraft | null;
-  saveStorefront: (s: StorefrontDraft) => void;
-  /** The "create your storefront" popup on Today was closed with "Later". */
+  /** The coach's storefront profile, from GET /api/coach/profile. Null only until the first load settles. */
+  storefront: CoachProfile | null;
+  /** Re-fetches the profile — call after a successful PATCH /api/coach/profile. */
+  refreshStorefront: () => Promise<void>;
+  /** Publish state, from GET /api/storefront. Null only until the first load settles. */
+  storefrontStatus: StorefrontStatus | null;
+  /** Re-fetches publish state — call after publishing/unpublishing, or after offers/payouts change. */
+  refreshStorefrontStatus: () => Promise<void>;
+  /** The "create your storefront" popup on Today was closed with "Later". Still a local-only preference. */
   storefrontPromptDismissed: boolean;
   dismissStorefrontPrompt: () => void;
-  /** The coach's offers, in storefront order. Frontend only: kept in this browser. */
-  offers: OfferDraft[];
-  saveOffer: (o: OfferDraft) => void;
-  deleteOffer: (id: string) => void;
-  reorderOffer: (id: string, dir: -1 | 1) => void;
-  /** The storefront is public at /<handle>. Frontend only: kept in this browser. */
-  storefrontPublished: boolean;
-  setStorefrontPublished: (v: boolean) => void;
-  /** Stripe Connect onboarding status. Mocked and kept in this browser until the status API exists. */
+  /** The coach's offers, from GET /api/offers, in storefront order. */
+  offers: CoachOfferSummary[];
+  /** Re-fetches the list — call after a successful create/update/delete/reorder. */
+  refreshOffers: () => Promise<void>;
+  /** Stripe Connect onboarding status, from GET /api/coach/onboarding-status. */
   payouts: OnboardingStatus;
-  setPayouts: (s: OnboardingStatus) => void;
-  /** True once saved state has been read from localStorage (so "not found" isn't just "not loaded"). */
+  /** Re-fetches status — call after returning from Stripe, or on the payouts page mounting. */
+  refreshPayouts: () => Promise<void>;
+  /** True once every local preference and the first round of server fetches above have settled. */
   hydrated: boolean;
 }
 
@@ -65,36 +70,78 @@ function writeStorage<T>(key: string, value: T) {
   }
 }
 
-export function AppStateProvider({ children }: { children: React.ReactNode }) {
+/**
+ * `signedIn` comes from the root layout (is there a session cookie at all). Signed-out pages —
+ * log in, sign up, a coach's public storefront — skip the coach-only fetches below, which would
+ * otherwise 401 and toast an error at someone who isn't a coach.
+ */
+export function AppStateProvider({ children, signedIn = true }: { children: React.ReactNode; signedIn?: boolean }) {
   const [theme, setThemeState] = useState<Theme>('dark');
   const [done, setDone] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(QUEUE[0]?.id ?? null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [storefront, setStorefront] = useState<StorefrontDraft | null>(null);
+  const [storefront, setStorefront] = useState<CoachProfile | null>(null);
+  const [storefrontStatus, setStorefrontStatus] = useState<StorefrontStatus | null>(null);
   const [storefrontPromptDismissed, setStorefrontPromptDismissed] = useState(false);
-  const [offers, setOffers] = useState<OfferDraft[]>([]);
+  const [offers, setOffers] = useState<CoachOfferSummary[]>([]);
   const [hydrated, setHydrated] = useState(false);
-  const [payouts, setPayoutsState] = useState<OnboardingStatus>(NOT_STARTED);
-  const [storefrontPublished, setPublishedState] = useState(false);
+  const [payouts, setPayouts] = useState<OnboardingStatus>(NOT_STARTED);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hydrate from localStorage after mount (avoids SSR/client mismatch).
+  const toast = useCallback((message: string) => {
+    setToastMessage(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMessage(null), 2600);
+  }, []);
+
+  const refreshOffers = useCallback(async () => {
+    const result = await fetchOffers();
+    if (result.ok) setOffers(result.offers);
+    else toast(result.message);
+  }, [toast]);
+
+  const refreshPayouts = useCallback(async () => {
+    const result = await fetchOnboardingStatus();
+    if (result.ok) setPayouts(result.status);
+    else toast(result.message);
+  }, [toast]);
+
+  const refreshStorefront = useCallback(async () => {
+    const result = await fetchProfile();
+    if (result.ok) setStorefront(result.profile);
+    else toast(result.message);
+  }, [toast]);
+
+  const refreshStorefrontStatus = useCallback(async () => {
+    const result = await apiFetch<StorefrontStatus>('/api/storefront');
+    if (result.success) setStorefrontStatus(result.data);
+    else toast(result.message);
+  }, [toast]);
+
+  // Read local-only preferences, then load every server-backed resource in parallel. Both halves
+  // must settle before `hydrated` flips, so a page can't render an empty/default state as if it
+  // were the coach's real (still-loading) one.
   useEffect(() => {
     const savedDone = readStorage<string[]>('ins_done', []);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setThemeState(readStorage<Theme>('ins_theme', 'dark'));
     setDone(savedDone);
-    const savedStorefront = readStorage<StorefrontDraft | null>('ins_storefront', null);
-    setStorefront(savedStorefront ? withStorefrontDefaults(savedStorefront) : null);
     setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
-    setOffers(readStorage<OfferDraft[]>('ins_offers', []));
-    setPayoutsState(readStorage<OnboardingStatus>('ins_payouts', NOT_STARTED));
-    setPublishedState(readStorage<boolean>('ins_storefront_published', false));
-    setHydrated(true);
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
+
+    if (!signedIn) {
+      setHydrated(true);
+      return;
+    }
+    Promise.all([refreshOffers(), refreshPayouts(), refreshStorefront(), refreshStorefrontStatus()]).finally(() => {
+      setHydrated(true);
+    });
+    // Deliberately once on mount — the refresh* functions are stable (useCallback) and re-fetching
+    // on their identity changing would just repeat this same initial load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -119,43 +166,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);
 
-  const toast = useCallback((message: string) => {
-    setToastMessage(message);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastMessage(null), 2600);
-  }, []);
-
   const complete = useCallback((id: string) => {
     setDone((prev) => (prev.includes(id) ? prev : [...prev, id]));
   }, []);
 
   const reset = useCallback(() => {
     setDone([]);
-  }, []);
-
-  const saveStorefront = useCallback((s: StorefrontDraft) => {
-    setStorefront(s);
-    writeStorage('ins_storefront', s);
-  }, []);
-
-  // Offers write through to storage on every change (after hydration, so the empty initial
-  // state never overwrites what's saved).
-  useEffect(() => {
-    if (hydrated) writeStorage('ins_offers', offers);
-  }, [offers, hydrated]);
-
-  const saveOffer = useCallback((o: OfferDraft) => setOffers((list) => upsertOffer(list, o)), []);
-  const deleteOffer = useCallback((id: string) => setOffers((list) => list.filter((o) => o.id !== id)), []);
-  const reorderOffer = useCallback((id: string, dir: -1 | 1) => setOffers((list) => moveOffer(list, id, dir)), []);
-
-  const setStorefrontPublished = useCallback((v: boolean) => {
-    setPublishedState(v);
-    writeStorage('ins_storefront_published', v);
-  }, []);
-
-  const setPayouts = useCallback((s: OnboardingStatus) => {
-    setPayoutsState(s);
-    writeStorage('ins_payouts', s);
   }, []);
 
   const dismissStorefrontPrompt = useCallback(() => {
@@ -179,17 +195,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       cmdOpen,
       setCmdOpen,
       storefront,
-      saveStorefront,
+      refreshStorefront,
+      storefrontStatus,
+      refreshStorefrontStatus,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
       offers,
-      saveOffer,
-      deleteOffer,
-      reorderOffer,
+      refreshOffers,
       payouts,
-      setPayouts,
-      storefrontPublished,
-      setStorefrontPublished,
+      refreshPayouts,
       hydrated,
     }),
     [
@@ -204,17 +218,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       navOpen,
       cmdOpen,
       storefront,
-      saveStorefront,
+      refreshStorefront,
+      storefrontStatus,
+      refreshStorefrontStatus,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
       offers,
-      saveOffer,
-      deleteOffer,
-      reorderOffer,
+      refreshOffers,
       payouts,
-      setPayouts,
-      storefrontPublished,
-      setStorefrontPublished,
+      refreshPayouts,
       hydrated,
     ],
   );

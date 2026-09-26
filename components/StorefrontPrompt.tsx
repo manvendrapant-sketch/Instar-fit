@@ -24,7 +24,7 @@ export function StorefrontPrompt() {
   const [placement, setPlacement] = useState<Placement>({ mode: 'docked' });
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const visible = ready && pathname === '/' && !storefront && !storefrontPromptDismissed && !navOpen;
+  const visible = ready && pathname === '/' && !storefront?.completed && !storefrontPromptDismissed && !navOpen;
 
   // Let Today's entrance animation land first, and wait for the stored state to hydrate.
   useEffect(() => {

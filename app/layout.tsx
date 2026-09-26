@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { Sora, Hanken_Grotesk, IBM_Plex_Mono } from 'next/font/google';
+import { cookies } from 'next/headers';
 import { AppStateProvider } from '@/lib/store';
+import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { Toast } from '@/components/Toast';
 import './globals.css';
 
@@ -33,14 +35,16 @@ export const metadata: Metadata = {
 // Avoids a light/dark flash: sets data-theme from localStorage before first paint.
 const themeInitScript = `(function(){try{var t=JSON.parse(localStorage.getItem('ins_theme')||'"dark"');document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Only whether a session cookie exists, not whether it's valid: the API routes verify it.
+  const signedIn = (await cookies()).has(SESSION_COOKIE_NAME);
   return (
     <html lang="en" data-theme="dark" className={`${sora.variable} ${hankenGrotesk.variable} ${plexMono.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="ins">
-        <AppStateProvider>
+        <AppStateProvider signedIn={signedIn}>
           {children}
           <Toast />
         </AppStateProvider>

@@ -21,7 +21,7 @@ const SPACE_COUNTS: Record<string, string> = {
 export function Sidebar({ coach }: { coach: { displayName: string; email: string } }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { done, setNavOpen, storefront, offers, payouts, storefrontPublished } = useAppState();
+  const { done, setNavOpen, storefront, offers, payouts, storefrontStatus } = useAppState();
   const [loggingOut, setLoggingOut] = useState(false);
   const left = QUEUE.length - done.length;
 
@@ -106,10 +106,10 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                     >
                       <Icon name="storefront" />
                       {tile.title}
-                      {!storefront ? (
+                      {!storefront?.completed ? (
                         <span className="ins-nav-setup">Set up</span>
                       ) : (
-                        storefrontPublished && <span className="ins-nav-setup ok">Live</span>
+                        storefrontStatus?.published && <span className="ins-nav-setup ok">Live</span>
                       )}
                     </Link>
                   );

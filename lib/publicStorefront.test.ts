@@ -1,17 +1,8 @@
-import { blankOffer, type OfferDraft } from './offers';
-import { MOCK_READY, NOT_STARTED, mockStatusAfter } from './payouts';
-import {
-  canPublish,
-  DEMO_HANDLE,
-  DEMO_STOREFRONT,
-  handleToName,
-  publishSteps,
-  resolvePublicView,
-  toPublicStorefront,
-} from './publicStorefront';
-import { storefrontLink, type StorefrontDraft } from './storefront';
+import type { CoachOfferSummary, CoachProfile, CoachPublicProfile, OnboardingStatus } from './commerce/types';
+import { canPublish, handleToName, loadPublicProfile, publishSteps, toPreviewProfile } from './publicStorefront';
+import { storefrontLink } from './storefront';
 
-const sf: StorefrontDraft = {
+const profile: CoachProfile = {
   handle: 'maya-reyes',
   displayName: 'Maya Reyes',
   bio: 'Hi',
@@ -20,52 +11,87 @@ const sf: StorefrontDraft = {
   location: 'Austin, TX',
   coachingMode: 'online',
   timeZone: 'America/Chicago',
+  completed: true,
 };
-const shown: OfferDraft = { ...blankOffer('subscription', 'a'), name: 'Coaching' };
-const hidden: OfferDraft = { ...blankOffer('session', 'b'), name: 'Call', visible: false };
+const offer = (id: string, active: boolean): CoachOfferSummary => ({
+  id,
+  type: 'subscription',
+  name: id,
+  description: null,
+  price: { currency: 'usd', unitAmountCents: 19900, interval: 'month', intervalCount: 1 },
+  includes: [],
+  lengthWeeks: null,
+  sessionMinutes: null,
+  active,
+  position: 0,
+});
+const NOT_STARTED: OnboardingStatus = { status: 'not_started', chargesEnabled: false, payoutsEnabled: false, requirementsDue: [] };
+const READY: OnboardingStatus = { status: 'ready', chargesEnabled: true, payoutsEnabled: true, requirementsDue: [] };
+const REVIEW: OnboardingStatus = { status: 'pending_review', chargesEnabled: false, payoutsEnabled: false, requirementsDue: [] };
 
-describe('toPublicStorefront', () => {
-  it('keeps only visible offers, in order, and writes the location line', () => {
-    const p = toPublicStorefront(sf, [hidden, shown]);
-    expect(p.offers.map((o) => o.id)).toEqual(['a']);
-    expect(p.where).toBe('Austin, TX · Online');
-    expect(p).not.toHaveProperty('timeZone');
+const publicProfile: CoachPublicProfile = { ...toPreviewProfile(profile, [offer('a', true)]) };
+
+function fakeFetch(status: number, body: unknown) {
+  return jest.fn(async () => ({ status, json: async () => body }) as unknown as Response);
+}
+
+describe('loadPublicProfile', () => {
+  it('calls the public API for the handle', async () => {
+    const f = fakeFetch(200, { success: true, message: 'ok', data: publicProfile });
+    await expect(loadPublicProfile('https://x.test', 'maya-reyes', f)).resolves.toEqual({ kind: 'found', profile: publicProfile });
+    expect(f).toHaveBeenCalledWith('https://x.test/api/coach/maya-reyes', { cache: 'no-store' });
+  });
+
+  it('treats 404 (unknown or unpublished) as not found', async () => {
+    const f = fakeFetch(404, { success: false, code: 'NOT_FOUND', message: 'This page is not available.' });
+    await expect(loadPublicProfile('https://x.test', 'nobody', f)).resolves.toEqual({ kind: 'not_found' });
+  });
+
+  it('treats other failures as an error, never throwing', async () => {
+    await expect(loadPublicProfile('https://x.test', 'a', fakeFetch(500, { success: false, code: 'INTERNAL_ERROR', message: 'x' }))).resolves.toEqual({ kind: 'error' });
+    const badJson = jest.fn(async () => ({ status: 502, json: async () => { throw new Error('not json'); } }) as unknown as Response);
+    await expect(loadPublicProfile('https://x.test', 'a', badJson)).resolves.toEqual({ kind: 'error' });
+    const offline = jest.fn(async () => { throw new Error('offline'); });
+    await expect(loadPublicProfile('https://x.test', 'a', offline)).resolves.toEqual({ kind: 'error' });
+  });
+
+  it('encodes the handle', async () => {
+    const f = fakeFetch(404, {});
+    await loadPublicProfile('https://x.test', 'a/b', f);
+    expect(f).toHaveBeenCalledWith('https://x.test/api/coach/a%2Fb', { cache: 'no-store' });
   });
 });
 
-describe('resolvePublicView', () => {
-  const none = { storefront: null, offers: [], published: false };
-
-  it('shows the owner their own page, live or as a preview', () => {
-    expect(resolvePublicView('maya-reyes', { storefront: sf, offers: [shown], published: false })).toMatchObject({ kind: 'owner', live: false });
-    expect(resolvePublicView('Maya-Reyes', { storefront: sf, offers: [shown], published: true })).toMatchObject({ kind: 'owner', live: true });
-  });
-
-  it('shows the demo coach for the demo handle and not found otherwise', () => {
-    expect(resolvePublicView(DEMO_HANDLE, none)).toEqual({ kind: 'demo', storefront: DEMO_STOREFRONT });
-    expect(resolvePublicView('someone-else', none)).toEqual({ kind: 'not_found' });
-    expect(resolvePublicView('someone-else', { storefront: sf, offers: [], published: true })).toEqual({ kind: 'not_found' });
-  });
-
-  it('gives the demo coach one of each offer type', () => {
-    expect(DEMO_STOREFRONT.offers.map((o) => o.type).sort()).toEqual(['one_time', 'session', 'subscription']);
+describe('toPreviewProfile', () => {
+  it('keeps only active offers and drops private fields', () => {
+    const p = toPreviewProfile(profile, [offer('hidden', false), offer('shown', true)]);
+    expect(p.offers.map((o) => o.id)).toEqual(['shown']);
+    expect(p).not.toHaveProperty('timeZone');
+    expect(p).not.toHaveProperty('completed');
   });
 });
 
 describe('publishSteps / canPublish', () => {
-  it('blocks until storefront, a visible offer and ready payouts all exist', () => {
-    expect(canPublish(publishSteps({ storefront: null, offers: [], payouts: NOT_STARTED }))).toBe(false);
-    expect(canPublish(publishSteps({ storefront: sf, offers: [shown], payouts: NOT_STARTED }))).toBe(false);
-    expect(canPublish(publishSteps({ storefront: sf, offers: [hidden], payouts: MOCK_READY }))).toBe(false);
-    expect(canPublish(publishSteps({ storefront: sf, offers: [shown], payouts: MOCK_READY }))).toBe(true);
+  it('marks each step done from profile, active offers and payouts', () => {
+    const done = (s: ReturnType<typeof publishSteps>) => s.filter((x) => x.done).map((x) => x.key);
+    expect(done(publishSteps({ storefront: null, offers: [], payouts: NOT_STARTED }))).toEqual([]);
+    expect(done(publishSteps({ storefront: { ...profile, completed: false }, offers: [], payouts: NOT_STARTED }))).toEqual([]);
+    expect(done(publishSteps({ storefront: profile, offers: [offer('a', false)], payouts: READY }))).toEqual(['storefront', 'payouts']);
+    expect(done(publishSteps({ storefront: profile, offers: [offer('a', true)], payouts: READY }))).toEqual(['storefront', 'offer', 'payouts']);
   });
 
-  it('explains each blocker', () => {
-    const steps = publishSteps({ storefront: sf, offers: [hidden], payouts: mockStatusAfter('finished') });
-    expect(steps.find((s) => s.key === 'offer')?.why).toMatch(/hidden/);
-    expect(steps.find((s) => s.key === 'payouts')?.why).toMatch(/checking/);
-    expect(steps.find((s) => s.key === 'offer')?.href).toBe('/business/offers');
-    expect(publishSteps({ storefront: sf, offers: [], payouts: NOT_STARTED })[1].href).toBe('/business/offers/new');
+  it('explains each blocker and links to where to fix it', () => {
+    const steps = publishSteps({ storefront: profile, offers: [offer('a', false)], payouts: REVIEW });
+    expect(steps[1]).toMatchObject({ why: expect.stringMatching(/hidden/), href: '/business/offers' });
+    expect(steps[2].why).toMatch(/checking/);
+    expect(publishSteps({ storefront: profile, offers: [], payouts: NOT_STARTED })[1].href).toBe('/business/offers/new');
+  });
+
+  it('leaves the publish decision to the server', () => {
+    expect(canPublish(null)).toBe(false);
+    const base = { handle: 'm', published: false, connectStatus: 'ready' as const, publicUrl: '/m' };
+    expect(canPublish({ ...base, canPublish: false })).toBe(false);
+    expect(canPublish({ ...base, canPublish: true })).toBe(true);
   });
 });
 

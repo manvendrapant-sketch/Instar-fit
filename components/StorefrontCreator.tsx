@@ -17,11 +17,13 @@ import {
   locationLine,
   LOCATION_MAX,
   normalizeHandle,
+  saveProfile,
   storefrontLink,
   SPECIALTIES,
   SPECIALTIES_MAX,
   SPECIALTY_MAX_LEN,
   timeZoneLabel,
+  toUpdateProfileRequest,
   validateStorefront,
   withStorefrontDefaults,
   type CoachingMode,
@@ -35,8 +37,8 @@ function initials(name: string) {
 }
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
-  const { storefront, saveStorefront, offers } = useAppState();
-  const shownOffers = offers.filter((o) => o.visible);
+  const { storefront, refreshStorefront, refreshStorefrontStatus, hydrated, toast, offers } = useAppState();
+  const shownOffers = offers.filter((o) => o.active);
   // Time zone starts as a fixed default so server and client render the same markup; the
   // browser's own zone replaces it after mount.
   const [draft, setDraft] = useState<StorefrontDraft>(() => withStorefrontDefaults({ ...defaults, timeZone: DEFAULT_TIME_ZONE }));
@@ -44,13 +46,14 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
   const [customSpecialty, setCustomSpecialty] = useState('');
   const [errors, setErrors] = useState<Partial<Record<StorefrontField, string>>>({});
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Prefill from a saved storefront once the store hydrates (for "Edit details"); otherwise
-  // use this device's time zone.
+  // Prefill from the loaded profile once it's completed (so "Edit details" starts from what's
+  // saved); otherwise use this device's time zone.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (storefront) setDraft(storefront);
+    if (storefront?.completed) setDraft(storefront);
     else setDraft((d) => ({ ...d, timeZone: detectTimeZone() }));
   }, [storefront]);
 
@@ -66,7 +69,10 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     setZones(list);
   }, []);
 
-  const set = <K extends keyof StorefrontDraft>(key: K, value: StorefrontDraft[K]) => {
+  if (!hydrated || !storefront) return null;
+
+  // Only the fields the form itself edits — never `completed`, which the server derives.
+  const set = <K extends Exclude<keyof StorefrontDraft, 'completed'>>(key: K, value: StorefrontDraft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
     // Editing a field clears its error; the next submit re-checks everything.
     const field: StorefrontField = key === 'avatarUrl' ? 'avatar' : key === 'coachingMode' ? 'location' : key;
@@ -93,7 +99,7 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     reader.readAsDataURL(file);
   }
 
-  function onSubmit(e: FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const clean = {
       ...draft,
@@ -104,10 +110,22 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     const next = validateStorefront(clean);
     setErrors(next);
     if (Object.keys(next).length > 0) return;
-    saveStorefront(clean);
+
+    setSaving(true);
+    const result = await saveProfile(toUpdateProfileRequest(clean));
+    setSaving(false);
+
+    if (!result.ok) {
+      setErrors(result.fieldErrors);
+      if (Object.keys(result.fieldErrors).length === 0) toast(result.message);
+      return;
+    }
+
+    await Promise.all([refreshStorefront(), refreshStorefrontStatus()]);
     setEditing(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
 
   const toggleSpecialty = (s: string) =>
     set('specialties', draft.specialties.includes(s) ? draft.specialties.filter((x) => x !== s) : addSpecialty(draft.specialties, s));
@@ -121,8 +139,8 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
 
   const status = handleStatus(draft.handle);
   const bioLen = (draft.bio ?? '').length;
-  const showForm = !storefront || editing;
-  const shown = showForm ? draft : storefront!;
+  const showForm = !storefront.completed || editing;
+  const shown = showForm ? draft : storefront;
 
   return (
     <>
@@ -355,11 +373,11 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
             </div>
 
             <div className="ins-sf-foot">
-              <button type="submit" className="ins-btn go">
-                {storefront ? 'Save changes' : 'Create storefront'}
+              <button type="submit" className="ins-btn go" disabled={saving}>
+                {storefront.completed ? 'Save changes' : 'Create storefront'}
                 <Icon name="arrow" />
               </button>
-              {storefront && (
+              {storefront.completed && (
                 <button type="button" className="ins-btn quiet" onClick={() => {
                     setDraft(storefront);
                     setErrors({});

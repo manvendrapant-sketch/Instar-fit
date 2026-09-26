@@ -318,15 +318,20 @@ this needs a real signup attempt against the live site to know for sure, same as
 
 ### Still open / next up
 
-- Pari's side (frontend only, all mocked in `localStorage` via `lib/store.tsx`, no API routes): storefront
-  editor `/business/storefront` (`lib/storefront.ts`), offer builder `/business/offers` (`lib/offers.ts`),
-  Connect payouts `/business/payouts` (`lib/payouts.ts`, with dashed "prototype controls"), and on
-  `feat/storefront-public` the public page `/[handle]` (`app/(public)/[handle]`, `lib/publicStorefront.ts`)
-  plus Publish, locked until payouts are ready. Until `GET /api/coach/[handle]` exists, `/[handle]` can
-  only show the coach's own page from their browser or the demo coach `maya-test`; anyone else sees
-  "not found". Storefront links are written `instar.co/<handle>` (path, matching `/[coachHandle]`).
-  Fields the UI collects that `lib/commerce/types.ts` doesn't carry yet: storefront specialties,
-  coaching mode, location, time zone; offer includes, program weeks, session minutes, visibility.
+- Pari's public storefront page `/[handle]` (`app/(public)/[handle]/`, merged from
+  `feat/storefront-public`): server-rendered from `GET /api/coach/[handle]` via
+  `lib/publicStorefront.ts`'s `loadPublicProfile` (absolute URL from `lib/publicOrigin.ts`,
+  deduped per request with React `cache` in `load.ts` so page + `generateMetadata` +
+  `opengraph-image.tsx` share one fetch). Unknown/unpublished → "no coach here" (noindex); API
+  failure → "didn't load"; the signed-in owner of an unpublished page gets `OwnerPreview`, built
+  from their own profile + active offers. Offer buttons toast "checkout coming soon" until Sprint 3.
+  The storefront page's publish card is `components/StorefrontPublish.tsx` (why-it's-locked steps,
+  "You're live" + copy link, unpublish) on top of `GET/PATCH /api/storefront`; the server's
+  `canPublish` decides, the steps only explain. Storefront links are written `instar.co/<handle>`.
+- **Signed-out pages skip coach-only fetches**: `app/layout.tsx` passes `signedIn` (session cookie
+  present) into `AppStateProvider`, which otherwise fired `/api/offers`, `/api/coach/*`,
+  `/api/storefront` on every page, including `/login`, `/signup` and the public storefront, where
+  they 401 and toast an error at a visitor who isn't a coach.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
@@ -416,5 +421,187 @@ something to revisit per-task.
 - `/lib/commerce/types.ts` is the one contract; flag any change to it rather than editing quietly.
 - Stripe test mode + test clocks only until the Sprint 6 "hardening & launch" milestone.
 - Branch naming: `feat/commerce-<short-name>` (Manvendra), `feat/storefront-<short-name>` (Pari).
+  **A Claude Code session's own harness-assigned branch (e.g. `claude/<adjective>-<name>-<id>`) is
+  not this** — rename it to the proper `feat/commerce-<short-name>` (or `feat/storefront-<short-name>`
+  for Pari's work) before finishing/handing off, don't leave Commerce work sitting on the generic
+  session name. Confirmed 2026-09-26 after doing exactly that rename (harness branch →
+  `feat/commerce-storefront-apis`) at Manvendra's explicit request.
 - Any Stripe client / DB client constructed at module scope must be lazy (see gotcha above).
 - New functionality ships with a test file in the same change — see "Testing (Jest)" above.
+
+## Storefront APIs — Pari's frontend workplan, backend half (2026-09-26)
+
+Manvendra shared Pari's five-item frontend workplan (`storefront-checklist`, `-offers`, `-payouts`,
+`-publish`, `-public` — all frontend-only with mock data until these exist) plus Stripe test-mode
+keys, and asked for the APIs those branches need, built ahead of the UI — same "mocks now, wire up
+the real thing later" pattern as the rest of Commerce. The test-mode keys (`sk_test_...` /
+`pk_test_...`, pasted directly in chat) went straight into this sandbox's own `.env.local` — never
+committed (confirmed gitignored via `git check-ignore -v .env.local`) and not yet set in Vercel (no
+storefront route is deployed against them yet; that's a "once Pari's UI is ready" step).
+
+**Schema**: migration `0003_sad_diamondback.sql` adds `coaches.published` (bool, default false —
+gates the public storefront) and `offers.position` (int, default 0 — the offer builder's
+reordering). **Same unconfirmed-migration situation as 0000-0002**: generated here, not applied
+anywhere — this sandbox still can't reach Postgres (see "This Claude Code sandbox cannot reach
+Postgres" above, unchanged since that section was written). Hand off the same way: the migration's
+own SQL plus drizzle's bookkeeping-table insert, pasted into Supabase's SQL Editor by the user.
+
+**New routes** (the `{ success, message, data }` envelope from `lib/api/response.ts`, all
+authenticated via the new `lib/auth/require-coach.ts` unless noted public):
+- `GET /api/offers`, `POST /api/offers` — the offer builder's list and create. Create also creates
+  the backing Stripe Product + Price (test mode) via `lib/commerce/offers.ts`'s
+  `createStripeProductAndPrice`, so real ids exist for Sprint 3 checkout to use later even though
+  checkout itself is out of scope here.
+- `PATCH /api/offers/[id]` — edit name/description/active, or replace the price. Stripe Prices are
+  immutable, so a price change creates a new Stripe Price + DB row and retires (`active: false`)
+  the old one rather than mutating it.
+- `PATCH /api/offers/reorder` — body `{ orderedIds }`, must be exactly a permutation of the coach's
+  own offer ids (not a subset, not anyone else's); writes each offer's new `position` in one
+  transaction.
+- `GET /api/offers/quote?unitAmountCents=&currency=` — the offer builder's live "you'll receive"
+  preview: wraps `lib/commerce/money.ts`'s `computeCheckoutBreakdown` with a `coachReceivesCents`
+  field (`baseAmountCents - platformFeeCents`).
+- `GET /api/coach/onboarding-status` — fills in the Sprint-1 stub already in `types.ts`, backed by
+  the new `lib/commerce/connect.ts`'s `deriveConnectStatus` — the one place Stripe's own
+  charges/payouts/details-submitted/requirements-due flags map onto our `ConnectStatus` enum, used
+  by both this route and the publish gate below so the two can't drift apart.
+- `POST /api/coach/connect/account-link` — creates the coach's Stripe Express account on first call
+  (reused after), then always issues a fresh Account Link (`account_onboarding`) since Stripe's
+  links expire in minutes; returns `{ url }` to redirect to. Return/refresh paths default to
+  `/business`, overridable via the request body once Pari's payouts screen has its own route.
+- `GET /api/storefront`, `PATCH /api/storefront` — status (`published`, `canPublish`,
+  `connectStatus`, `publicUrl`) and the publish/unpublish toggle. `canPublish` requires
+  `connectStatus === 'ready'` AND at least one active offer; publishing without both 422s
+  `NOT_READY`. Unpublishing (hiding the storefront again) has no gate.
+- `GET /api/coach/[handle]` — the public storefront page's data, no auth. 404s unless
+  `coaches.published` is true; returns only active offers ordered by `position`. Matches the
+  `CoachPublicProfile` shape already documented in `types.ts`.
+
+New shared types in `lib/commerce/types.ts`: `CoachOfferSummary`, `CreateOfferRequest`,
+`UpdateOfferRequest`, `ReorderOffersRequest`, `OfferQuoteResponse`, `StorefrontStatus`,
+`UpdateStorefrontRequest`, `CreateAccountLinkRequest`/`CreateAccountLinkResponse`.
+
+**New shared helper**: `lib/auth/require-coach.ts` (`requireCoachSession()`) — the cookie-read +
+verify steps `GET /api/auth/me` had inlined, pulled out once eight more routes needed the same
+three lines.
+
+Every new module/route shipped with a test file (standing rule, see "Testing (Jest)" above) — 58
+new tests (`npm test`: 26 suites, 175 tests total now, ~5s). Also verified `npm run build` succeeds
+with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` all unset (the lazy-client convention
+holding for every new route) and that `npx eslint .` / `npx tsc --noEmit` are both clean.
+
+**Not done / deliberately out of scope for this pass**:
+- No live Stripe verification — `.env.local` now has real test-mode keys, but nothing here was
+  exercised against the actual Stripe test API (same network restriction as everywhere else in this
+  file); only unit tests with `getStripe`/`getDb` mocked ran.
+- `account.updated` webhook handling (to refresh `connectedAccounts.chargesEnabled` /
+  `payoutsEnabled` / `requirementsDue` from Stripe) is still Sprint-2+ per the workplan — the
+  webhook route still only dedupes, so a real coach's `onboarding-status` will read
+  `not_started`/`action_needed` indefinitely until that lands.
+- ~~Deleting/archiving an offer beyond `active: false` wasn't asked for and isn't implemented.~~
+  **Added in the frontend-integration pass below** (`DELETE /api/offers/[id]`) once the merged
+  offer builder turned out to have a real delete button.
+- Mobile checkout (Sprint 3) and everything after it in Pari's workplan is explicitly not part of
+  this ask.
+
+## Frontend wired to the real storefront APIs (2026-09-26, later same day)
+
+Manvendra asked to pull the latest `main` (Pari had meanwhile merged her offer builder, payouts
+screens and storefront creator — all still frontend-only mock data, per her own workplan) and
+integrate this session's backend into it, then rename the session's own harness-assigned branch to
+the proper `feat/commerce-<short-name>` convention (see "Working conventions" above — that bullet
+now has the "rename the harness branch" clause this session added). Done as
+`feat/commerce-storefront-apis`; the merge was clean (no file both sides touched with conflicting
+changes — `lib/commerce/types.ts` only got additive changes here).
+
+**The frontend's mock modules assumed fields the contract didn't have yet** — flagged in their own
+comments ("flag to Manvendra before wiring the real API"), and now added:
+- `offers.includes` (jsonb string[]), `offers.length_weeks`, `offers.session_minutes` — the offer
+  builder's "what's included", program length and session length fields.
+- `coaches.specialties` (jsonb string[]), `coaches.location`, `coaches.coaching_mode` (new enum
+  `online`/`in_person`/`both`) — public storefront-profile fields the storefront creator collects.
+- `coaches.time_zone` — private (never on the public profile; used for session/check-in times).
+- `coaches.storefront_completed_at` (nullable timestamp) — replaces the old frontend's "is
+  `storefront` null" check for "has this coach set up a storefront yet"; exposed as `completed`
+  on `CoachProfile`/`GET /api/coach/profile`, not the raw timestamp.
+
+All four landed in migration `0004_shocking_nomad.sql` — **same unconfirmed/unapplied situation as
+0000-0003**, handed off to the user as SQL the same way (this sandbox still has no Postgres
+access).
+
+**New route**: `GET /api/coach/profile`, `PATCH /api/coach/profile` — the storefront creator's own
+profile (a superset of the public `CoachPublicProfile`: same fields plus `timeZone` and
+`completed`). PATCH always takes the whole profile (the creator always submits the full draft, so
+there's no partial-update variant like offers has). Validation lives in the new
+`lib/commerce/profile.ts` — handle format AND a reserved-word list (`login`, `signup`, `business`,
+`clients`, `grow`, `api`, `app`, `admin`, `help`, `support`, `instar`) that would collide with an
+app route once the public storefront lives at `/<handle>`; the frontend's own `lib/storefront.ts`
+checks the same list client-side for instant feedback — **keep the two lists in sync**. Handle
+*uniqueness* (taken by another coach) is a separate DB check in the route itself, reported as a 409
+`HANDLE_TAKEN` the same way signup reports a taken email. Changing the handle or display name
+reissues the session JWT (same pattern as nothing before this — first place a non-auth route needed
+to touch the session cookie) so the sidebar/topbar don't keep showing stale values until the coach
+logs in again.
+
+**`DELETE /api/offers/[id]`** — added because the merged offer builder has a real delete button
+(not just hide via `active: false`). Hard-deletes the offer row (`prices.offerId` cascades); best-
+effort archives the Stripe product (`products.update({active:false})`) — a failure there doesn't
+fail the delete, since nothing reads a deleted offer's Stripe ids again.
+
+**Frontend rewiring** (all under `lib/`, following the existing `lib/auth.ts` fetch-wrapper
+pattern, now extracted once three more files needed the same fetch/error-envelope logic):
+- New `lib/api-client.ts` (`apiFetch`, `ApiResult<T>`) — the one fetch-plus-envelope helper;
+  `lib/auth.ts`'s own `postJson` is now a two-line wrapper over it, kept for import-path
+  compatibility with its existing callers/tests.
+- `lib/offers.ts`: `OfferDraft` is now a straight alias for the contract's `CoachOfferSummary`
+  (rather than its own frontend-only interface) — `visible` became `active` throughout (the field
+  the backend already used); added `fetchOffers`/`createOfferApi`/`updateOfferApi`/`deleteOfferApi`/
+  `reorderOffersApi` plus `toCreateRequest`/`toUpdateRequest` request-shape builders.
+- `lib/payouts.ts`: dropped the mock-Stripe-outcome stand-in (`mockStatusAfter`, `isMockResult`,
+  `MOCK_RESULTS`, `MOCK_READY` — all gone) now that a real Connect flow exists; added
+  `fetchOnboardingStatus`/`createAccountLink`.
+- `lib/storefront.ts`: `StorefrontDraft` is now an alias for `CoachProfile`; `CoachingMode` moved to
+  `lib/commerce/types.ts` (re-exported here for compatibility); added `fetchProfile`/`saveProfile`/
+  `setStorefrontPublished`/`toUpdateProfileRequest`. `withStorefrontDefaults` still exists but its
+  job changed: it now builds a full draft from the session JWT's handle/displayName while
+  `GET /api/coach/profile`'s real answer is loading, not "backfill an old localStorage draft" (there
+  is no localStorage draft anymore).
+- `lib/store.tsx` (`AppStateProvider`): `offers`/`payouts`/`storefront` are no longer
+  `useState` + `localStorage`-persisted mocks — they're loaded from the three GET routes above on
+  mount (in parallel) and exposed with `refreshOffers`/`refreshPayouts`/`refreshStorefront`
+  functions instead of setters; a new `storefrontStatus` (from `GET /api/storefront`) plus
+  `refreshStorefrontStatus` backs the publish toggle. `hydrated` now means "local prefs read AND
+  all four server fetches settled," not just "localStorage read." Components call the `lib/*.ts`
+  API functions directly (for field-error handling) and then call the matching `refresh*()` rather
+  than the old context methods doing the mutation themselves — mirrors how the login/signup forms
+  already worked, just extended to three more resources. `theme`/`done`/`storefrontPromptDismissed`
+  are still local-only preferences, unchanged.
+- Every component that read `storefront` as "null until created" now reads `storefront?.completed`
+  instead (`storefront` itself is non-null once loaded, per the schema note above): `OffersList`,
+  `PayoutsPage`, `Sidebar`'s "Set up" badge, `StorefrontPrompt`. Missed this once for `Sidebar.tsx`
+  on the first pass (it type-checks fine either way — `!storefront` vs `!storefront?.completed` are
+  both valid `boolean`s — so this is a "caught by rereading the diff," not a compiler error).
+- `PayoutsConnect`'s "Continue to Stripe" now calls the real `createAccountLink()` and redirects to
+  the actual Stripe URL; `PayoutsConnect`'s old mock stand-in screen is gone. `PayoutsReturn` now
+  fetches real onboarding status on return instead of reading a `?mock=` query param;
+  `app/(app)/business/payouts/return/page.tsx` no longer reads/passes that param either.
+- `StorefrontCreator`'s "done" panel gained the actual **Publish**/**Unpublish** step and button
+  (`storefrontStatus.canPublish` gates it, same rule as the backend) — the old copy ("Publishing is
+  coming in the next update") is gone now that `/api/storefront` has a real caller.
+
+**Verified**: `npx tsc --noEmit`, `npx eslint .` and `npm test` (32 suites, 291 tests) all clean;
+`npm run build` succeeds with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` unset. Also
+smoke-tested in a real dev server (Playwright, hand-crafted signed session cookie — same technique
+as the earlier login/signup verification) across `/business`, `/business/offers(/new)`,
+`/business/payouts` and `/business/storefront`: every page rendered without a React crash, and a
+failed API call (expected here — no Postgres access) surfaced as the existing generic error toast
+rather than a blank screen or thrown exception. **Not verified**: an actual create-offer /
+connect-payouts / save-profile round trip against a real database, since this sandbox still can't
+reach one — that needs the pending migrations 0000-0004 applied first (see above), from somewhere
+with real network access.
+
+**Not done / still open**:
+- No live-Stripe or live-DB verification of this pass specifically (same standing gap as Sprint 1).
+- Deleting/hiding an offer's Stripe product on delete is best-effort only (see above) — if Stripe
+  itself is down, the offer still deletes but the Stripe product stays active; nothing reconciles
+  that later.

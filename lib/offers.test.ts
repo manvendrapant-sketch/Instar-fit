@@ -2,12 +2,19 @@ import {
   blankOffer,
   centsToInput,
   changeOfferType,
+  createOfferApi,
+  deleteOfferApi,
+  fetchOffers,
   finalizeOffer,
   formatMoney,
   formatOfferPrice,
   isOfferType,
   moveOffer,
   parsePriceToCents,
+  reorderOffersApi,
+  toCreateRequest,
+  toUpdateRequest,
+  updateOfferApi,
   upsertOffer,
   validateOffer,
   type OfferDraft,
@@ -171,5 +178,98 @@ describe('upsertOffer / moveOffer', () => {
     expect(moveOffer(list, 'a', -1)).toBe(list);
     expect(moveOffer(list, 'c', 1)).toBe(list);
     expect(moveOffer(list, 'zzz', 1)).toBe(list);
+  });
+});
+
+describe('toCreateRequest / toUpdateRequest', () => {
+  it('builds a create request with every offer field', () => {
+    const o = { ...coaching(), includes: ['Plan'], active: false };
+    expect(toCreateRequest(o)).toEqual({
+      type: 'subscription',
+      name: '1:1 coaching',
+      description: null,
+      price: o.price,
+      includes: ['Plan'],
+      lengthWeeks: null,
+      sessionMinutes: null,
+    });
+  });
+
+  it('builds an update request including active, but not type/id/position', () => {
+    const o = { ...coaching(), active: false };
+    expect(toUpdateRequest(o)).toEqual({
+      name: '1:1 coaching',
+      description: null,
+      active: false,
+      price: o.price,
+      includes: [],
+      lengthWeeks: null,
+      sessionMinutes: null,
+    });
+  });
+});
+
+describe('offer API wrappers', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function mockFetchJson(body: unknown) {
+    global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve(body) }) as typeof fetch;
+  }
+
+  it('fetchOffers() returns the list on success', async () => {
+    mockFetchJson({ success: true, message: 'Offers loaded.', data: { offers: [coaching()] } });
+    const result = await fetchOffers();
+    expect(result).toEqual({ ok: true, offers: [coaching()] });
+  });
+
+  it('fetchOffers() returns ok:false with the backend message on failure', async () => {
+    mockFetchJson({ success: false, code: 'NOT_AUTHENTICATED', message: 'You are not logged in.' });
+    expect(await fetchOffers()).toEqual({ ok: false, message: 'You are not logged in.' });
+  });
+
+  it('createOfferApi() maps unitAmountCents/interval field errors onto "price"', async () => {
+    mockFetchJson({
+      success: false,
+      code: 'VALIDATION_ERROR',
+      message: 'Please fix the highlighted fields and try again.',
+      fields: { unitAmountCents: 'Enter a price greater than $0.' },
+    });
+    const result = await createOfferApi(toCreateRequest(coaching()));
+    expect(result).toEqual({
+      ok: false,
+      message: 'Please fix the highlighted fields and try again.',
+      fieldErrors: { price: 'Enter a price greater than $0.' },
+    });
+  });
+
+  it('createOfferApi() returns the created offer on success', async () => {
+    const offer = coaching();
+    mockFetchJson({ success: true, message: 'Offer created.', data: { offer } });
+    expect(await createOfferApi(toCreateRequest(offer))).toEqual({ ok: true, offer });
+  });
+
+  it('updateOfferApi() PATCHes /api/offers/:id', async () => {
+    const offer = coaching();
+    mockFetchJson({ success: true, message: 'Offer updated.', data: { offer } });
+    await updateOfferApi('a', toUpdateRequest(offer));
+    expect(global.fetch).toHaveBeenCalledWith('/api/offers/a', expect.objectContaining({ method: 'PATCH' }));
+  });
+
+  it('deleteOfferApi() DELETEs /api/offers/:id', async () => {
+    mockFetchJson({ success: true, message: 'Offer deleted.', data: { id: 'a' } });
+    expect(await deleteOfferApi('a')).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledWith('/api/offers/a', expect.objectContaining({ method: 'DELETE' }));
+  });
+
+  it('reorderOffersApi() PATCHes /api/offers/reorder with the ordered ids', async () => {
+    mockFetchJson({ success: true, message: 'Offers reordered.', data: { orderedIds: ['b', 'a'] } });
+    expect(await reorderOffersApi(['b', 'a'])).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/offers/reorder',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ orderedIds: ['b', 'a'] }) }),
+    );
   });
 });

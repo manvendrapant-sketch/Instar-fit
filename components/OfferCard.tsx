@@ -1,7 +1,8 @@
 import { Icon } from '@/lib/icons';
-import { formatOfferPrice, OFFER_TYPES, type OfferDraft } from '@/lib/offers';
+import type { OfferSummary } from '@/lib/commerce/types';
+import { formatOfferPrice, OFFER_TYPES } from '@/lib/offers';
 
-export function offerCta(type: OfferDraft['type']) {
+export function offerCta(type: OfferSummary['type']) {
   return type === 'session' ? 'Book' : type === 'subscription' ? 'Start' : 'Get the program';
 }
 
@@ -14,9 +15,9 @@ export function OfferCard({
   compact = false,
   onSelect,
 }: {
-  offer: OfferDraft;
+  offer: OfferSummary;
   compact?: boolean;
-  onSelect?: (offer: OfferDraft) => void;
+  onSelect?: (offer: OfferSummary) => void;
 }) {
   const hasPrice = offer.price.unitAmountCents > 0;
   return (

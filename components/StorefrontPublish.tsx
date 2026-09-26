@@ -6,7 +6,7 @@ import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { OFFERS_PATH } from '@/lib/offers';
 import { canPublish, publishSteps } from '@/lib/publicStorefront';
-import { storefrontLink } from '@/lib/storefront';
+import { setStorefrontPublished, storefrontLink } from '@/lib/storefront';
 
 /**
  * The storefront page's status card once a storefront exists: what's left before it can go
@@ -14,15 +14,30 @@ import { storefrontLink } from '@/lib/storefront';
  * "you're live" state with the link to share.
  */
 export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
-  const { storefront, offers, payouts, storefrontPublished, setStorefrontPublished, toast } = useAppState();
+  const { storefront, offers, payouts, storefrontStatus, refreshStorefrontStatus, toast } = useAppState();
   const [confirmUnpublish, setConfirmUnpublish] = useState(false);
+  const [busy, setBusy] = useState(false);
   if (!storefront) return null;
 
   const steps = publishSteps({ storefront, offers, payouts });
-  const ready = canPublish(steps);
+  // The server (GET /api/storefront) decides; the steps only explain why it's locked.
+  const ready = canPublish(storefrontStatus);
   const blockers = steps.filter((s) => !s.done);
+  const published = !!storefrontStatus?.published;
   const link = storefrontLink(storefront.handle);
-  const pagePath = `/${storefront.handle}`;
+  const pagePath = storefrontStatus?.publicUrl ?? `/${storefront.handle}`;
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    const result = await setStorefrontPublished(next);
+    if (result.ok) await refreshStorefrontStatus();
+    setBusy(false);
+    if (!result.ok) {
+      toast(result.message);
+      return false;
+    }
+    return true;
+  }
 
   function copy() {
     const url = `${window.location.origin}${pagePath}`;
@@ -30,14 +45,15 @@ export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
     toast(`Copied ${link}`);
   }
 
-  function publish() {
-    if (!ready) return;
-    setStorefrontPublished(true);
-    toast('You’re live');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  async function publish() {
+    if (!ready || busy) return;
+    if (await toggle(true)) {
+      toast('You’re live');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
 
-  if (storefrontPublished) {
+  if (published) {
     return (
       <section className="ins-panel ins-sf-done ins-in d2" aria-labelledby="pub-title" aria-live="polite">
         <span className="ins-chip k-lead">
@@ -95,10 +111,12 @@ export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
               <button
                 type="button"
                 className="ins-btn ins-btn-bad"
-                onClick={() => {
-                  setStorefrontPublished(false);
-                  setConfirmUnpublish(false);
-                  toast('Your page is hidden');
+                disabled={busy}
+                onClick={async () => {
+                  if (await toggle(false)) {
+                    setConfirmUnpublish(false);
+                    toast('Your page is hidden');
+                  }
                 }}
               >
                 Unpublish
@@ -150,11 +168,11 @@ export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
           type="button"
           className="ins-btn go"
           onClick={publish}
-          disabled={!ready}
+          disabled={!ready || busy}
           aria-describedby={ready ? undefined : 'publish-why'}
         >
-          Publish storefront
-          <Icon name="arrow" />
+          {busy ? 'Publishing…' : 'Publish storefront'}
+          {!busy && <Icon name="arrow" />}
         </button>
         <a href={pagePath} target="_blank" rel="noreferrer" className="ins-btn">
           Preview your page
@@ -165,7 +183,9 @@ export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
       </div>
       {!ready && (
         <p className="ins-pub-why" id="publish-why">
-          {blockers[0].key === 'payouts'
+          {!blockers[0]
+            ? 'Checking whether your storefront can go live…'
+            : blockers[0].key === 'payouts'
             ? 'Publishing unlocks once payouts are ready, so every client who pays you actually gets paid out.'
             : `Next: ${blockers[0].label.toLowerCase()}.`}
         </p>

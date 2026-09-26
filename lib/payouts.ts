@@ -1,9 +1,10 @@
-import type { ConnectStatus, OnboardingStatus } from './commerce/types';
+import { apiFetch } from './api-client';
+import type { ConnectStatus, CreateAccountLinkRequest, CreateAccountLinkResponse, OnboardingStatus } from './commerce/types';
 
-// Connect payouts, frontend only. The coach's bank, ID and tax details are collected by Stripe's
-// hosted Express onboarding, never by Instar; this app only shows OnboardingStatus
-// (GET /api/coach/onboarding-status in lib/commerce/types.ts) and sends the coach to Stripe.
-// Until those routes exist, the status is mocked and kept in this browser.
+// Connect payouts. The coach's bank, ID and tax details are collected by Stripe's hosted Express
+// onboarding, never by Instar — this app only shows OnboardingStatus
+// (GET /api/coach/onboarding-status) and sends the coach to Stripe
+// (POST /api/coach/connect/account-link).
 
 export const PAYOUTS_PATH = '/business/payouts';
 export const PAYOUTS_CONNECT_PATH = '/business/payouts/connect';
@@ -91,35 +92,22 @@ export function isPayoutsReady(s: OnboardingStatus): boolean {
   return s.status === 'ready' && s.chargesEnabled && s.payoutsEnabled;
 }
 
-// ---- Mock only: stands in for Stripe until the account-link and status routes exist. ----
+// --- Backend calls -----------------------------------------------------------------------
 
-export type MockStripeResult = 'finished' | 'left_early' | 'verified';
-
-export const MOCK_RESULTS: Record<MockStripeResult, string> = {
-  finished: 'Finished everything (goes to review)',
-  left_early: 'Left before finishing',
-  verified: 'Verified straight away',
-};
-
-export function isMockResult(v: unknown): v is MockStripeResult {
-  return v === 'finished' || v === 'left_early' || v === 'verified';
+export async function fetchOnboardingStatus(): Promise<{ ok: true; status: OnboardingStatus } | { ok: false; message: string }> {
+  const result = await apiFetch<OnboardingStatus>('/api/coach/onboarding-status');
+  if (result.success) return { ok: true, status: result.data };
+  return { ok: false, message: result.message };
 }
 
-/** What GET /api/coach/onboarding-status would plausibly return after each Stripe outcome. */
-export function mockStatusAfter(result: MockStripeResult): OnboardingStatus {
-  switch (result) {
-    case 'finished':
-      return { status: 'pending_review', chargesEnabled: false, payoutsEnabled: false, requirementsDue: [] };
-    case 'left_early':
-      return {
-        status: 'action_needed',
-        chargesEnabled: false,
-        payoutsEnabled: false,
-        requirementsDue: ['external_account', 'individual.verification.document', 'individual.dob.day', 'individual.dob.month'],
-      };
-    case 'verified':
-      return { status: 'ready', chargesEnabled: true, payoutsEnabled: true, requirementsDue: [] };
-  }
+/** Creates (or reuses) the coach's Stripe Express account and returns the onboarding link to redirect to. */
+export async function createAccountLink(
+  request: CreateAccountLinkRequest,
+): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  const result = await apiFetch<CreateAccountLinkResponse>('/api/coach/connect/account-link', {
+    method: 'POST',
+    body: request,
+  });
+  if (result.success) return { ok: true, url: result.data.url };
+  return { ok: false, message: result.message };
 }
-
-export const MOCK_READY: OnboardingStatus = mockStatusAfter('verified');

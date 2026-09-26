@@ -6,16 +6,7 @@ import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
-import {
-  isPayoutsReady,
-  mockStatusAfter,
-  NOT_STARTED,
-  PAYOUT_STEPS,
-  PAYOUTS_CONNECT_PATH,
-  requirementLabels,
-  STATUS_COPY,
-  stepIndex,
-} from '@/lib/payouts';
+import { isPayoutsReady, PAYOUT_STEPS, PAYOUTS_CONNECT_PATH, requirementLabels, STATUS_COPY, stepIndex } from '@/lib/payouts';
 
 const CHIP_KIND: Record<ConnectStatus, string> = {
   not_started: 'k-renew',
@@ -32,7 +23,7 @@ const YOU_NEED = [
 ];
 
 export function PayoutsPage() {
-  const { payouts, setPayouts, hydrated, storefront, offers, toast } = useAppState();
+  const { payouts, hydrated, storefront, offers, toast } = useAppState();
   if (!hydrated) return null;
 
   const { status } = payouts;
@@ -160,42 +151,21 @@ export function PayoutsPage() {
               </span>
               <div>
                 <span className="ins-label">Next step</span>
-                <h2 id="po-next">{storefront ? 'Publish your storefront' : 'Create your storefront'}</h2>
+                <h2 id="po-next">{storefront?.completed ? 'Publish your storefront' : 'Create your storefront'}</h2>
                 <p>
-                  {storefront
+                  {storefront?.completed
                     ? 'You can get paid now. Publish your storefront and put the link in your Instagram bio.'
                     : 'You can get paid now. Create your storefront so clients have somewhere to buy.'}
                 </p>
                 <div className="ins-actions" style={{ marginTop: 14 }}>
                   <Link href={STOREFRONT_PATH} className="ins-btn go">
-                    {storefront ? 'Go to storefront' : 'Create storefront'}
+                    {storefront?.completed ? 'Go to storefront' : 'Create storefront'}
                     <Icon name="arrow" />
                   </Link>
                 </div>
               </div>
             </section>
           )}
-
-          <section className="ins-po-proto ins-in d4" aria-labelledby="po-proto">
-            <span className="ins-label" id="po-proto">
-              Prototype controls · not in the real app
-            </span>
-            <p>Stripe isn’t connected yet. Jump between states to review each screen.</p>
-            <div className="ins-actions">
-              <button type="button" className="ins-btn quiet" onClick={() => setPayouts(NOT_STARTED)}>
-                Not started
-              </button>
-              <button type="button" className="ins-btn quiet" onClick={() => setPayouts(mockStatusAfter('left_early'))}>
-                Action needed
-              </button>
-              <button type="button" className="ins-btn quiet" onClick={() => setPayouts(mockStatusAfter('finished'))}>
-                In review
-              </button>
-              <button type="button" className="ins-btn quiet" onClick={() => setPayouts(mockStatusAfter('verified'))}>
-                Ready
-              </button>
-            </div>
-          </section>
         </div>
 
         <aside className="ins-sf-preview ins-po-side ins-in d3" aria-labelledby="po-how">

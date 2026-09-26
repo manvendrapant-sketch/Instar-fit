@@ -1,53 +1,31 @@
-'use client';
-
 import Link from 'next/link';
+import type { CoachPublicProfile } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
-import { useAppState } from '@/lib/store';
-import { OfferCard } from '@/components/OfferCard';
-import { resolvePublicView, type PublicStorefront } from '@/lib/publicStorefront';
-import { STOREFRONT_PATH, storefrontLink } from '@/lib/storefront';
+import { locationLine, STOREFRONT_PATH, storefrontLink } from '@/lib/storefront';
+import { PublicOfferList } from '@/components/PublicOfferList';
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
 }
 
+export type PublicBanner = 'owner-live' | 'owner-preview' | null;
+
 /**
- * A coach's public storefront at /<handle>. Mobile first: nearly every visit comes from an
- * Instagram bio link. Data comes from resolvePublicView until GET /api/coach/[handle] exists.
+ * A coach's public storefront at /<handle>, from GET /api/coach/[handle]. Mobile first: nearly
+ * every visit comes from an Instagram bio link. Renders on the server; only the offer buttons are
+ * interactive (PublicOfferList).
  */
-export function PublicStorefrontView({ handle }: { handle: string }) {
-  const { storefront, offers, storefrontPublished, hydrated, toast } = useAppState();
-  if (!hydrated) return <main className="ins-pub" aria-busy="true" />;
-
-  const view = resolvePublicView(handle, { storefront, offers, published: storefrontPublished });
-
-  if (view.kind === 'not_found') {
-    return (
-      <main className="ins-pub ins-pub-missing">
-        <span className="ins-label">{storefrontLink(handle)}</span>
-        <h1>There’s no coach here yet</h1>
-        <p>Check the link, or ask your coach to send it again.</p>
-        <Link href="/signup" className="ins-btn">
-          Are you a coach? Start your storefront
-        </Link>
-        <Footer />
-      </main>
-    );
-  }
-
-  const s = view.storefront;
-  // Checkout is Sprint 3; until then the button explains itself instead of doing nothing.
-  const onSelect = () => toast('Checkout is coming soon. You’ll pay by card, Apple Pay or Google Pay.');
-
+export function PublicStorefrontView({ profile, banner }: { profile: CoachPublicProfile; banner: PublicBanner }) {
+  const where = locationLine(profile);
   return (
     <main className="ins-pub">
-      {view.kind === 'owner' && (
-        <div className={`ins-pub-banner ${view.live ? 'live' : ''}`} role="status">
+      {banner && (
+        <div className={`ins-pub-banner ${banner === 'owner-live' ? 'live' : ''}`} role="status">
           <span>
-            {view.live ? (
+            {banner === 'owner-live' ? (
               <>
-                <b>Your page is live.</b> This is what clients see at {storefrontLink(s.handle)}.
+                <b>Your page is live.</b> This is what clients see at {storefrontLink(profile.handle)}.
               </>
             ) : (
               <>
@@ -55,26 +33,42 @@ export function PublicStorefrontView({ handle }: { handle: string }) {
               </>
             )}
           </span>
-          <Link href={STOREFRONT_PATH}>{view.live ? 'Edit' : 'Back to publish'}</Link>
-        </div>
-      )}
-      {view.kind === 'demo' && (
-        <div className="ins-pub-banner" role="status">
-          <span>
-            <b>Sample storefront.</b> A demo coach, so you can see what clients get.
-          </span>
-          <Link href="/signup">Make yours</Link>
+          <Link href={STOREFRONT_PATH}>{banner === 'owner-live' ? 'Edit' : 'Back to publish'}</Link>
         </div>
       )}
 
-      <Profile s={s} />
+      <header className="ins-pub-profile">
+        <span className="ins-sf-avatar ins-pub-avatar" aria-hidden="true">
+          {profile.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.avatarUrl} alt="" />
+          ) : (
+            initials(profile.displayName) || <Icon name="user" />
+          )}
+        </span>
+        <h1>{profile.displayName}</h1>
+        {profile.specialties.length > 0 && (
+          <ul className="ins-sf-tags" aria-label="Specialties">
+            {profile.specialties.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        )}
+        {where && (
+          <span className="ins-sf-where">
+            <Icon name="network" className="ins-i sm" />
+            {where}
+          </span>
+        )}
+        {profile.bio && <p>{profile.bio}</p>}
+      </header>
 
       <section className="ins-pub-offers" aria-labelledby="pub-offers">
         <h2 className="ins-label" id="pub-offers">
-          Work with {s.displayName.split(' ')[0] || 'me'}
+          Work with {profile.displayName.split(' ')[0] || 'me'}
         </h2>
-        {s.offers.length > 0 ? (
-          s.offers.map((o) => <OfferCard key={o.id} offer={o} onSelect={onSelect} />)
+        {profile.offers.length > 0 ? (
+          <PublicOfferList offers={profile.offers} />
         ) : (
           <div className="ins-sf-empty">
             <Icon name="offers" />
@@ -83,42 +77,37 @@ export function PublicStorefrontView({ handle }: { handle: string }) {
         )}
       </section>
 
-      <Footer />
+      <PublicFooter />
     </main>
   );
 }
 
-function Profile({ s }: { s: PublicStorefront }) {
+/** Unknown or unpublished handle ("not_found"), or the API failed ("error"). */
+export function PublicUnavailable({ handle, reason }: { handle: string; reason: 'not_found' | 'error' }) {
   return (
-    <header className="ins-pub-profile">
-      <span className="ins-sf-avatar ins-pub-avatar" aria-hidden="true">
-        {s.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={s.avatarUrl} alt="" />
-        ) : (
-          initials(s.displayName) || <Icon name="user" />
-        )}
-      </span>
-      <h1>{s.displayName}</h1>
-      {s.specialties.length > 0 && (
-        <ul className="ins-sf-tags" aria-label="Specialties">
-          {s.specialties.map((t) => (
-            <li key={t}>{t}</li>
-          ))}
-        </ul>
+    <main className="ins-pub ins-pub-missing">
+      <span className="ins-label">{storefrontLink(handle)}</span>
+      <h1>{reason === 'error' ? 'This page didn’t load' : 'There’s no coach here yet'}</h1>
+      <p>
+        {reason === 'error'
+          ? 'Something went wrong on our side. Try again in a moment.'
+          : 'Check the link, or ask your coach to send it again.'}
+      </p>
+      {reason === 'error' ? (
+        <a href={`/${handle}`} className="ins-btn">
+          Try again
+        </a>
+      ) : (
+        <Link href="/signup" className="ins-btn">
+          Are you a coach? Start your storefront
+        </Link>
       )}
-      {s.where && (
-        <span className="ins-sf-where">
-          <Icon name="network" className="ins-i sm" />
-          {s.where}
-        </span>
-      )}
-      {s.bio && <p>{s.bio}</p>}
-    </header>
+      <PublicFooter />
+    </main>
   );
 }
 
-function Footer() {
+function PublicFooter() {
   return (
     <footer className="ins-pub-foot">
       <span>

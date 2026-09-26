@@ -1,28 +1,41 @@
 import type { Metadata } from 'next';
-import { PublicStorefrontView } from '@/components/PublicStorefrontView';
-import { DEMO_HANDLE, DEMO_STOREFRONT, handleToName } from '@/lib/publicStorefront';
+import { cookies } from 'next/headers';
+import { PublicStorefrontView, PublicUnavailable } from '@/components/PublicStorefrontView';
+import { OwnerPreview } from '@/components/OwnerPreview';
+import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/auth/session';
+import { handleToName } from '@/lib/publicStorefront';
+import { getPublicProfile, normalizeParam } from './load';
 
 type Props = { params: Promise<{ handle: string }> };
 
-// Until GET /api/coach/[handle] exists the server only knows the handle (and the demo coach), so
-// titles are derived from it; the real version reads the coach's name and bio from the API.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { handle } = await params;
-  const h = decodeURIComponent(handle).toLowerCase();
-  const name = h === DEMO_HANDLE ? DEMO_STOREFRONT.displayName : handleToName(h);
+  const handle = normalizeParam((await params).handle);
+  const result = await getPublicProfile(handle);
+  if (result.kind !== 'found') {
+    return { title: `${handleToName(handle) || 'Coach'} · Instar`, robots: { index: false } };
+  }
+  const { displayName, bio, specialties } = result.profile;
   const description =
-    h === DEMO_HANDLE && DEMO_STOREFRONT.bio
-      ? DEMO_STOREFRONT.bio
-      : `Coaching, programs and sessions with ${name}. Pick an offer and pay in about a minute.`;
+    bio ?? `${specialties.length ? `${specialties.join(', ')} coaching` : 'Coaching'} with ${displayName}. Pick an offer and pay in about a minute.`;
   return {
-    title: `${name} · Instar`,
+    title: `${displayName} · Instar`,
     description,
-    openGraph: { title: `${name} · Coaching on Instar`, description, type: 'profile', url: `/${h}` },
-    twitter: { card: 'summary_large_image', title: `${name} · Coaching on Instar`, description },
+    openGraph: { title: `${displayName} · Coaching on Instar`, description, type: 'profile', url: `/${handle}` },
+    twitter: { card: 'summary_large_image', title: `${displayName} · Coaching on Instar`, description },
   };
 }
 
 export default async function PublicStorefrontPage({ params }: Props) {
-  const { handle } = await params;
-  return <PublicStorefrontView handle={decodeURIComponent(handle).toLowerCase()} />;
+  const handle = normalizeParam((await params).handle);
+  const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const isOwner = session?.handle === handle;
+
+  const result = await getPublicProfile(handle);
+  if (result.kind === 'found') {
+    return <PublicStorefrontView profile={result.profile} banner={isOwner ? 'owner-live' : null} />;
+  }
+  // The public API only serves published pages; the owner can still preview theirs.
+  if (isOwner) return <OwnerPreview />;
+  return <PublicUnavailable handle={handle} reason={result.kind} />;
 }

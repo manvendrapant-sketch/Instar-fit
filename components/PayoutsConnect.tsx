@@ -4,17 +4,24 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
-import { MOCK_RESULTS, PAYOUTS_PATH, PAYOUTS_RETURN_PATH, type MockStripeResult } from '@/lib/payouts';
+import { createAccountLink, PAYOUTS_CONNECT_PATH, PAYOUTS_PATH, PAYOUTS_RETURN_PATH } from '@/lib/payouts';
 
-/**
- * The step before Stripe. In the real app, "Continue to Stripe" asks the server for an Express
- * account link and redirects to it; Stripe sends the coach back to PAYOUTS_RETURN_PATH. Until
- * that route exists, a clearly marked stand-in lets you pick what Stripe would report.
- */
+/** The step before Stripe: asks the server for an Express account link and redirects to it. */
 export function PayoutsConnect() {
-  const { payouts } = useAppState();
+  const { payouts, toast } = useAppState();
   const [handingOff, setHandingOff] = useState(false);
   const resuming = payouts.status === 'action_needed';
+
+  async function onContinue() {
+    setHandingOff(true);
+    const result = await createAccountLink({ returnPath: PAYOUTS_RETURN_PATH, refreshPath: PAYOUTS_CONNECT_PATH });
+    if (!result.ok) {
+      setHandingOff(false);
+      toast(result.message);
+      return;
+    }
+    window.location.href = result.url;
+  }
 
   return (
     <>
@@ -50,8 +57,8 @@ export function PayoutsConnect() {
             </li>
           </ul>
           <div className="ins-actions">
-            <button type="button" className="ins-btn go" onClick={() => setHandingOff(true)} disabled={handingOff}>
-              Continue to Stripe
+            <button type="button" className="ins-btn go" onClick={onContinue} disabled={handingOff}>
+              {handingOff ? 'Redirecting…' : 'Continue to Stripe'}
               <Icon name="arrow" />
             </button>
             <Link href={PAYOUTS_PATH} className="ins-btn quiet">
@@ -59,24 +66,6 @@ export function PayoutsConnect() {
             </Link>
           </div>
         </section>
-
-        {handingOff && (
-          <section className="ins-po-proto ins-po-standin ins-in" aria-labelledby="pc-standin" aria-live="polite">
-            <span className="ins-label" id="pc-standin">
-              Prototype · stands in for Stripe’s onboarding
-            </span>
-            <p>
-              In the real app you’d be on Stripe’s page now. Pick what happened there to see the screen you’d come back to.
-            </p>
-            <div className="ins-po-results">
-              {(Object.keys(MOCK_RESULTS) as MockStripeResult[]).map((r) => (
-                <Link key={r} href={`${PAYOUTS_RETURN_PATH}?mock=${r}`} className="ins-btn">
-                  {MOCK_RESULTS[r]}
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
     </>
   );

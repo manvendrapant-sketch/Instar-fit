@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og';
-import { DEMO_HANDLE, DEMO_STOREFRONT, handleToName } from '@/lib/publicStorefront';
+import { handleToName } from '@/lib/publicStorefront';
+import { getPublicProfile, normalizeParam } from './load';
 import { storefrontLink } from '@/lib/storefront';
 
 // The card shown when a coach's link is pasted into Instagram, iMessage or WhatsApp. Colours are
@@ -15,15 +16,16 @@ const ACCENT = '#5CD6FF';
 
 export default async function Image({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const h = decodeURIComponent(handle).toLowerCase();
-  const demo = h === DEMO_HANDLE;
-  const name = demo ? DEMO_STOREFRONT.displayName : handleToName(h);
-  const tags = demo ? DEMO_STOREFRONT.specialties : [];
+  const h = normalizeParam(handle);
+  const result = await getPublicProfile(h);
+  const found = result.kind === 'found' ? result.profile : null;
+  const name = found?.displayName ?? handleToName(h);
+  const tags = found?.specialties ?? [];
   const initials = name
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
-    .map((w) => w[0])
+    .map((w: string) => w[0])
     .join('');
 
   return new ImageResponse(
@@ -61,7 +63,7 @@ export default async function Image({ params }: { params: Promise<{ handle: stri
             <div style={{ fontSize: 76, letterSpacing: -3, lineHeight: 1 }}>{name}</div>
             {tags.length > 0 && (
               <div style={{ display: 'flex', gap: 12 }}>
-                {tags.map((t) => (
+                {tags.map((t: string) => (
                   <div
                     key={t}
                     style={{ fontSize: 26, padding: '6px 18px', borderRadius: 999, border: '2px solid rgba(255,255,255,.14)' }}
