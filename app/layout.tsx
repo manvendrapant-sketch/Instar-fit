@@ -1,9 +1,6 @@
 import type { Metadata } from 'next';
 import { Sora, Hanken_Grotesk, IBM_Plex_Mono } from 'next/font/google';
 import { AppStateProvider } from '@/lib/store';
-import { TopBar } from '@/components/TopBar';
-import { Sidebar } from '@/components/Sidebar';
-import { CommandPalette } from '@/components/CommandPalette';
 import { Toast } from '@/components/Toast';
 import './globals.css';
 
@@ -44,16 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="ins">
         <AppStateProvider>
-          <div className="ins-page">
-            <TopBar />
-            <div className="ins-app">
-              <Sidebar />
-              <main className="ins-wrap" tabIndex={-1}>
-                {children}
-              </main>
-            </div>
-          </div>
-          <CommandPalette />
+          {children}
           <Toast />
         </AppStateProvider>
       </body>
