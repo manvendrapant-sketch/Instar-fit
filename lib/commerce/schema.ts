@@ -66,7 +66,7 @@ export const coaches = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('coaches_handle_idx').on(t.handle), uniqueIndex('coaches_email_idx').on(t.email)],
-);
+).enableRLS();
 
 // One row per coach, created once their Stripe Express account exists.
 export const connectedAccounts = pgTable(
@@ -89,7 +89,7 @@ export const connectedAccounts = pgTable(
     uniqueIndex('connected_accounts_coach_idx').on(t.coachId),
     uniqueIndex('connected_accounts_stripe_idx').on(t.stripeAccountId),
   ],
-);
+).enableRLS();
 
 export const offers = pgTable('offers', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -103,7 +103,7 @@ export const offers = pgTable('offers', {
   stripeProductId: text('stripe_product_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 export const prices = pgTable('prices', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -118,7 +118,7 @@ export const prices = pgTable('prices', {
   intervalCount: integer('interval_count').default(1),
   active: boolean('active').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 export const clients = pgTable(
   'clients',
@@ -134,7 +134,7 @@ export const clients = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('clients_stripe_customer_idx').on(t.stripeCustomerId)],
-);
+).enableRLS();
 
 export const subscriptions = pgTable(
   'subscriptions',
@@ -158,7 +158,7 @@ export const subscriptions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('subscriptions_stripe_idx').on(t.stripeSubscriptionId)],
-);
+).enableRLS();
 
 // A payment is the client-facing charge: base offer price + the disclosed service fee.
 // `platformFeeCents` is Instar's take (application_fee_amount on the Stripe charge), a subset
@@ -186,7 +186,7 @@ export const payments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('payments_intent_idx').on(t.stripePaymentIntentId)],
-);
+).enableRLS();
 
 export const refunds = pgTable('refunds', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -199,7 +199,7 @@ export const refunds = pgTable('refunds', {
   initiatedBy: refundInitiatorEnum('initiated_by').notNull(),
   status: refundStatusEnum('status').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}).enableRLS();
 
 export const disputes = pgTable(
   'disputes',
@@ -218,7 +218,7 @@ export const disputes = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('disputes_stripe_idx').on(t.stripeDisputeId)],
-);
+).enableRLS();
 
 export const payouts = pgTable(
   'payouts',
@@ -235,7 +235,7 @@ export const payouts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('payouts_stripe_idx').on(t.stripePayoutId)],
-);
+).enableRLS();
 
 // Every Stripe webhook we accept lands here first, keyed by Stripe's own event id.
 // The unique index is the dedupe mechanism a retried/duplicate delivery relies on.
@@ -250,4 +250,4 @@ export const webhookEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex('webhook_events_stripe_id_idx').on(t.stripeEventId)],
-);
+).enableRLS();

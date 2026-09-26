@@ -5,6 +5,26 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Row Level Security enabled on all commerce tables, no policies yet
+
+Made by Manvendra. All 11 Sprint-1 tables now have RLS turned on (`.enableRLS()` in
+`lib/commerce/schema.ts`, migration `0001_tiny_hobgoblin.sql`) with **no policies defined**.
+
+**Why now, with nothing enforced yet**: our app never queries these tables through Supabase's
+auto-generated REST/GraphQL API — `lib/commerce/db.ts` connects directly via `postgres-js` as the
+`postgres` role, and RLS doesn't apply to a table's owner. So turning RLS on costs us nothing today
+and closes off the real risk: if that Supabase API is ever pointed at these tables (by accident, by
+a future teammate, by a client-side Supabase SDK call), a table with RLS **off** is fully
+readable/writable with just the public anon key — for tables holding payment amounts, Stripe ids
+and client emails, that's the failure mode worth preventing for free. Supabase's own dashboard
+linter flags any public-schema table without RLS as "Unrestricted" for the same reason.
+
+**Why no real policies yet**: a meaningful policy needs to check something like
+`auth.uid() = coaches.user_id`, which needs actual auth wired up first (coaches table has no
+`user_id`/auth link column yet — this repo has no auth at all, per "What this repo is"). Default
+deny via RLS-with-no-policies is the safe placeholder until then; real per-coach scoping is part of
+Sprint 6's "coach can only touch their own data" requirement from the workplan, not Sprint 1.
+
 ## 2026-09-26 — Week 1 Commerce decisions
 
 Made by Manvendra. Settles the five items `Workplan-Manvendra.md` and `Workplan-Pari.md` both

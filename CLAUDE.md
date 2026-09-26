@@ -133,10 +133,37 @@ directly by `drizzle-kit` and by `scripts/seed-commerce.ts` via `tsx`, neither o
 through Next's bundler, so `server-only`'s guard trips immediately. Only add `server-only` to a
 commerce file if nothing outside Next's own build/dev server will ever import it.
 
-**Not done / needs the user**: no Postgres database is provisioned yet (`DATABASE_URL` unset — the
-build tolerates this by design; `db:migrate`/`db:seed` will fail loudly until it's set), and no
-Stripe test-mode keys are configured. Both are needed before Sprint 1's "done when" bar (Pari can
-hit mocked routes; webhooks log in test mode) is actually met, not just compiles.
+**Database**: Supabase project "Instar Fit" (org "Instar"). `postgres-js` is configured with
+`prepare: false` in `db.ts` because Supabase's transaction-mode pooler (PgBouncer) doesn't support
+prepared statements.
+
+**This Claude Code sandbox cannot reach Postgres at all — confirmed, not assumed.** Outbound
+network here only allows port 443 (HTTPS); a direct TCP test to the Supabase pooler's port 6543
+timed out while port 443 to the same host connected instantly. This holds regardless of which
+Supabase connection string is used (direct `db.*.supabase.co:5432` is also IPv6-only, a second,
+independent reason it fails here). **Do not spend time retrying connection-string variants** if a
+future session hits this again — go straight to the workaround below. It does not affect the
+deployed app: Vercel's servers aren't behind this restriction, so the webhook route connects fine
+once `DATABASE_URL` is set in the Vercel project's env vars.
+
+**Workaround in use**: generate the migration as normal (`npm run db:generate`), then instead of
+`npm run db:migrate`, compute the migration file's sha256 (`crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')`
+— this is exactly what `drizzle-orm`'s migrator does internally, see `node_modules/drizzle-orm/migrator.js`)
+and hand the user a combined SQL file: the migration's own SQL, plus
+`CREATE SCHEMA IF NOT EXISTS "drizzle"; CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);`
+plus an `INSERT` of that hash and the journal entry's `when` timestamp into that table. They paste
+it into Supabase's SQL Editor (browser, not this sandbox — works fine over 443). This keeps
+`drizzle-kit migrate`'s bookkeeping correct so a *future* migration, run from anywhere with real DB
+access, only applies what's actually new. Two migrations have gone out this way so far:
+`0000_special_hellfire_club.sql` (initial schema) and `0001_tiny_hobgoblin.sql` (RLS enablement,
+see `Decisions.md`).
+
+**Not done / needs the user**: migrations 0000 and 0001 were handed to the user to apply manually
+(see above) — confirm they've actually run them before assuming the schema exists. `db:seed` has
+the same port-443-only problem and hasn't been run anywhere yet (needs either the user's machine,
+which has normal network access, or hand-written INSERT SQL the same way as the migrations). No
+Stripe test-mode keys are configured yet either. All of this is needed before Sprint 1's "done when"
+bar (Pari can hit mocked routes; webhooks log in test mode) is actually met, not just compiles.
 
 ### Still open / next up
 
