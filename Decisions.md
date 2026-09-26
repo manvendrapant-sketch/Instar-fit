@@ -5,7 +5,7 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
-## 2026-09-26 — Coach login/signup APIs added (branch `login/signup-APIs`)
+## 2026-09-26 — Coach login/signup APIs added (branch `feat/commerce-login-signup`)
 
 Requested by Manvendra: real login/signup endpoints, backed by the now-connected Supabase
 Postgres instance, with response messages the frontend can show directly.

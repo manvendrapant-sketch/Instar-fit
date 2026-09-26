@@ -179,7 +179,7 @@ as the migrations). No Stripe test-mode keys are configured yet either. All of t
 before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
 actually met, not just compiles.
 
-## Login / signup APIs (branch `login/signup-APIs`, 2026-09-26)
+## Login / signup APIs (branch `feat/commerce-login-signup`, 2026-09-26)
 
 Coach-only email/password auth — see `Decisions.md` for the full rationale (why coaches only,
 why a JWT cookie instead of a sessions table, what's deliberately out of scope).
