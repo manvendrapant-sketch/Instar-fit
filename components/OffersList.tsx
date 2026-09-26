@@ -5,14 +5,27 @@ import type { OfferType } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
-import { formatOfferPrice, OFFER_TYPES, OFFERS_PATH } from '@/lib/offers';
+import { formatOfferPrice, moveOffer, OFFER_TYPES, OFFERS_PATH, reorderOffersApi, updateOfferApi } from '@/lib/offers';
 import { isPayoutsReady, PAYOUTS_PATH, STATUS_COPY } from '@/lib/payouts';
 
 const QUICK_STARTS: OfferType[] = ['subscription', 'one_time', 'session'];
 
 export function OffersList() {
-  const { offers, reorderOffer, saveOffer, storefront, hydrated, payouts } = useAppState();
-  const live = offers.filter((o) => o.visible).length;
+  const { offers, refreshOffers, storefront, hydrated, payouts, toast } = useAppState();
+  const live = offers.filter((o) => o.active).length;
+
+  async function move(id: string, dir: -1 | 1) {
+    const ids = moveOffer(offers, id, dir).map((o) => o.id);
+    const result = await reorderOffersApi(ids);
+    if (result.ok) await refreshOffers();
+    else toast(result.message);
+  }
+
+  async function toggleActive(id: string, active: boolean) {
+    const result = await updateOfferApi(id, { active });
+    if (result.ok) await refreshOffers();
+    else toast(result.message);
+  }
 
   return (
     <>
@@ -62,7 +75,7 @@ export function OffersList() {
         </section>
       )}
 
-      {hydrated && !storefront && offers.length > 0 && (
+      {hydrated && !storefront?.completed && offers.length > 0 && (
         <p className="ins-offers-note ins-in">
           Clients will see these on your storefront. <Link href={STOREFRONT_PATH}>Create your storefront</Link> to get your link.
         </p>
@@ -96,12 +109,12 @@ export function OffersList() {
           </div>
           <ol className="ins-offers-list">
             {offers.map((o, i) => (
-              <li key={o.id} className={`ins-offers-row ${o.visible ? '' : 'hidden'}`}>
+              <li key={o.id} className={`ins-offers-row ${o.active ? '' : 'hidden'}`}>
                 <div className="ins-offers-order">
                   <button
                     type="button"
                     className="ins-input-btn"
-                    onClick={() => reorderOffer(o.id, -1)}
+                    onClick={() => move(o.id, -1)}
                     disabled={i === 0}
                     aria-label={`Move ${o.name} up`}
                   >
@@ -110,7 +123,7 @@ export function OffersList() {
                   <button
                     type="button"
                     className="ins-input-btn"
-                    onClick={() => reorderOffer(o.id, 1)}
+                    onClick={() => move(o.id, 1)}
                     disabled={i === offers.length - 1}
                     aria-label={`Move ${o.name} down`}
                   >
@@ -129,13 +142,13 @@ export function OffersList() {
                 </Link>
                 <button
                   type="button"
-                  className={`ins-offers-vis ${o.visible ? 'on' : ''}`}
-                  onClick={() => saveOffer({ ...o, visible: !o.visible })}
-                  aria-pressed={o.visible}
-                  aria-label={o.visible ? `Hide ${o.name} from storefront` : `Show ${o.name} on storefront`}
+                  className={`ins-offers-vis ${o.active ? 'on' : ''}`}
+                  onClick={() => toggleActive(o.id, !o.active)}
+                  aria-pressed={o.active}
+                  aria-label={o.active ? `Hide ${o.name} from storefront` : `Show ${o.name} on storefront`}
                 >
-                  <Icon name={o.visible ? 'eye' : 'eyeoff'} />
-                  <span>{o.visible ? 'Shown' : 'Hidden'}</span>
+                  <Icon name={o.active ? 'eye' : 'eyeoff'} />
+                  <span>{o.active ? 'Shown' : 'Hidden'}</span>
                 </button>
               </li>
             ))}

@@ -22,7 +22,15 @@ export interface OfferSummary {
   name: string;
   description: string | null;
   price: OfferPrice;
+  /** Bullet points shown under the description, e.g. "Weekly check-in". */
+  includes: string[];
+  /** `one_time` offers only; null otherwise. */
+  lengthWeeks: number | null;
+  /** `session` offers only; null otherwise. */
+  sessionMinutes: number | null;
 }
+
+export type CoachingMode = 'online' | 'in_person' | 'both';
 
 /** GET /api/coach/[handle] — public storefront data. No auth, no PII beyond what's public. */
 export interface CoachPublicProfile {
@@ -30,12 +38,46 @@ export interface CoachPublicProfile {
   displayName: string;
   bio: string | null;
   avatarUrl: string | null;
+  specialties: string[];
+  location: string | null;
+  coachingMode: CoachingMode;
   /** Only populated once Sprint-2 social-proof wiring exists; absent, not zero, until then. */
   socialProof?: {
     instagramHandle: string;
     followerCount: number;
   };
   offers: OfferSummary[];
+}
+
+/**
+ * GET /api/coach/profile, PATCH /api/coach/profile — the coach's own editable storefront profile.
+ * A superset of `CoachPublicProfile`: adds `timeZone`, used for session/check-in times and never
+ * shown on the public profile, and `completed`, which is false until the first PATCH (so the UI
+ * can tell "hasn't set up a storefront yet" from "has one with all-default values").
+ */
+export interface CoachProfile {
+  handle: string;
+  displayName: string;
+  bio: string | null;
+  avatarUrl: string | null;
+  specialties: string[];
+  location: string | null;
+  coachingMode: CoachingMode;
+  /** IANA zone, e.g. "America/Chicago". */
+  timeZone: string;
+  completed: boolean;
+}
+
+/** PATCH /api/coach/profile request body — always the full profile, not a partial patch. */
+export interface UpdateCoachProfileRequest {
+  handle: string;
+  displayName: string;
+  bio: string | null;
+  avatarUrl: string | null;
+  specialties: string[];
+  location: string | null;
+  coachingMode: CoachingMode;
+  timeZone: string;
 }
 
 /**
@@ -103,6 +145,9 @@ export interface CreateOfferRequest {
   name: string;
   description: string | null;
   price: OfferPrice;
+  includes: string[];
+  lengthWeeks: number | null;
+  sessionMinutes: number | null;
 }
 
 /** PATCH /api/offers/[id] request body — all fields optional, only provided ones change. */
@@ -110,6 +155,9 @@ export interface UpdateOfferRequest {
   name?: string;
   description?: string | null;
   active?: boolean;
+  includes?: string[];
+  lengthWeeks?: number | null;
+  sessionMinutes?: number | null;
   /** Replacing this creates a new Stripe Price and retires the old one — Stripe Prices are immutable. */
   price?: OfferPrice;
 }

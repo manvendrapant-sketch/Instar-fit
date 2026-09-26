@@ -3,6 +3,8 @@
 // for instant feedback — the backend re-validates everything itself and is the actual source of
 // truth (never trust it from here alone).
 
+import { apiFetch, type ApiResult } from './api-client';
+
 export type SignupField = 'name' | 'email' | 'password' | 'confirm' | 'terms';
 export type LoginField = 'email' | 'password';
 export type FieldErrors<F extends string> = Partial<Record<F, string>>;
@@ -55,28 +57,8 @@ export interface AuthedCoach {
   displayName: string;
 }
 
-// Mirrors lib/api/response.ts's envelope — duplicated (rather than imported) because that file
-// pulls in `next/server`, which client components can't bundle.
-type ApiResult<T> =
-  | { success: true; message: string; data: T }
-  | { success: false; code: string; message: string; fields?: Record<string, string> };
-
-// Never throws: a network failure or a non-JSON response (a bare 500 from an infra problem, a
-// proxy error page, ...) becomes a normal ApiResult failure instead of an unhandled rejection.
-// Letting this throw left the calling form's submit button stuck disabled forever with no
-// message shown — the caller's `finally`-less `pending` reset never ran (seen in production
-// 2026-09-26: signup/login 500s did exactly this).
-async function postJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
-  try {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    return (await res.json()) as ApiResult<T>;
-  } catch {
-    return { success: false, code: 'NETWORK_ERROR', message: 'Something went wrong. Please try again.' };
-  }
+function postJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+  return apiFetch<T>(path, { method: 'POST', body });
 }
 
 // The backend validates displayName/email/password; it knows nothing about "name" or "confirm"

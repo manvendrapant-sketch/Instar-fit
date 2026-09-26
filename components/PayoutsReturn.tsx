@@ -3,31 +3,39 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { useAppState } from '@/lib/store';
-import { isMockResult, mockStatusAfter, PAYOUTS_PATH, STATUS_COPY } from '@/lib/payouts';
+import { fetchOnboardingStatus, PAYOUTS_PATH, STATUS_COPY } from '@/lib/payouts';
 
 /**
- * Where Stripe sends the coach back. The real version fetches GET /api/coach/onboarding-status
- * (Stripe's return doesn't say whether onboarding finished) and then shows Payouts. The mock
- * reads the outcome picked on the stand-in screen instead.
+ * Where Stripe sends the coach back. Stripe's return doesn't itself say whether onboarding
+ * finished, so this fetches GET /api/coach/onboarding-status directly (rather than the store's
+ * cached `payouts`, which could still be a render behind) and refreshes the shared cache with it.
  */
-export function PayoutsReturn({ mock }: { mock: string | undefined }) {
+export function PayoutsReturn() {
   const router = useRouter();
-  const { setPayouts, toast, hydrated } = useAppState();
+  const { refreshPayouts, toast, hydrated } = useAppState();
   const applied = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!hydrated || applied.current) return;
     applied.current = true;
-    const t = setTimeout(() => {
-      if (isMockResult(mock)) {
-        const next = mockStatusAfter(mock);
-        setPayouts(next);
-        toast(`Back from Stripe · ${STATUS_COPY[next.status].chip}`);
-      }
-      router.replace(PAYOUTS_PATH);
-    }, 900);
-    return () => clearTimeout(t);
-  }, [hydrated, mock, setPayouts, toast, router]);
+
+    let cancelled = false;
+    (async () => {
+      const result = await fetchOnboardingStatus();
+      await refreshPayouts();
+      if (cancelled) return;
+      timer.current = setTimeout(() => {
+        if (result.ok) toast(`Back from Stripe · ${STATUS_COPY[result.status.status].chip}`);
+        router.replace(PAYOUTS_PATH);
+      }, 900);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [hydrated, refreshPayouts, toast, router]);
 
   return (
     <section className="ins-po-checking" role="status" aria-live="polite">

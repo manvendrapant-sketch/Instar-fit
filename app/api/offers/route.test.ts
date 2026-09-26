@@ -52,16 +52,18 @@ describe('GET /api/offers', () => {
   it('lists the coach’s offers with their active price, ordered by position', async () => {
     (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
     const row = {
-      id: 'offer-1',
-      type: 'one_time',
-      name: 'Kickoff call',
-      description: null,
-      active: true,
-      position: 0,
-      currency: 'usd',
-      unitAmountCents: 5000,
-      interval: null,
-      intervalCount: null,
+      offer: {
+        id: 'offer-1',
+        type: 'one_time',
+        name: 'Kickoff call',
+        description: null,
+        active: true,
+        position: 0,
+        includes: [],
+        lengthWeeks: null,
+        sessionMinutes: null,
+      },
+      price: { currency: 'usd', unitAmountCents: 5000, interval: null, intervalCount: null },
     };
     const select = jest.fn().mockReturnValue(selectListChain([row]));
     (getDb as jest.Mock).mockReturnValue({ select });
@@ -80,6 +82,9 @@ describe('GET /api/offers', () => {
             description: null,
             active: true,
             position: 0,
+            includes: [],
+            lengthWeeks: null,
+            sessionMinutes: null,
             price: { currency: 'usd', unitAmountCents: 5000, interval: null, intervalCount: null },
           },
         ],
@@ -121,6 +126,9 @@ describe('POST /api/offers', () => {
       description: null,
       active: true,
       position: 0,
+      includes: [],
+      lengthWeeks: null,
+      sessionMinutes: null,
       stripeProductId: 'prod_1',
     };
     const priceRow = {
@@ -142,6 +150,9 @@ describe('POST /api/offers', () => {
       name: 'Kickoff call',
       description: null,
       price: { currency: 'usd', unitAmountCents: 5000, interval: null, intervalCount: null },
+      includes: [],
+      lengthWeeks: null,
+      sessionMinutes: null,
     });
     await expect(res.json()).resolves.toMatchObject({
       success: true,

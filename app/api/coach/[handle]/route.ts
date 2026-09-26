@@ -18,16 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
     }
 
     const rows = await db
-      .select({
-        id: offers.id,
-        type: offers.type,
-        name: offers.name,
-        description: offers.description,
-        currency: prices.currency,
-        unitAmountCents: prices.unitAmountCents,
-        interval: prices.interval,
-        intervalCount: prices.intervalCount,
-      })
+      .select({ offer: offers, price: prices })
       .from(offers)
       .innerJoin(prices, and(eq(prices.offerId, offers.id), eq(prices.active, true)))
       .where(and(eq(offers.coachId, coach.id), eq(offers.active, true)))
@@ -38,16 +29,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ handle:
       displayName: coach.displayName,
       bio: coach.bio,
       avatarUrl: coach.avatarUrl,
+      specialties: coach.specialties,
+      location: coach.location,
+      coachingMode: coach.coachingMode,
       offers: rows.map((r) => ({
-        id: r.id,
-        type: r.type,
-        name: r.name,
-        description: r.description,
+        id: r.offer.id,
+        type: r.offer.type,
+        name: r.offer.name,
+        description: r.offer.description,
+        includes: r.offer.includes,
+        lengthWeeks: r.offer.lengthWeeks,
+        sessionMinutes: r.offer.sessionMinutes,
         price: {
-          currency: r.currency,
-          unitAmountCents: r.unitAmountCents,
-          interval: r.interval,
-          intervalCount: r.intervalCount,
+          currency: r.price.currency,
+          unitAmountCents: r.price.unitAmountCents,
+          interval: r.price.interval,
+          intervalCount: r.price.intervalCount,
         },
       })),
     };

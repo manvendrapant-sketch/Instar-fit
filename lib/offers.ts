@@ -1,20 +1,12 @@
-import type { BillingInterval, OfferSummary, OfferType } from './commerce/types';
+import { apiFetch } from './api-client';
+import type { BillingInterval, CoachOfferSummary, CreateOfferRequest, OfferType, UpdateOfferRequest } from './commerce/types';
 
-// Offer builder, frontend only. An OfferDraft is the contract's OfferSummary plus the details the
-// builder collects that the contract doesn't carry yet (flag these to Manvendra before wiring the
-// real offers API): what's included, program length, session length, and storefront visibility.
+// Offer builder. An OfferDraft is exactly the real API's CoachOfferSummary — includes, program
+// length, session length and the `active`/"shown on storefront" flag are all part of that shared
+// contract now, not frontend-only extras.
+export type OfferDraft = CoachOfferSummary;
 
-export interface OfferDraft extends OfferSummary {
-  includes: string[];
-  /** One-time programs only. */
-  lengthWeeks: number | null;
-  /** Single sessions only. */
-  sessionMinutes: number | null;
-  /** Shown on the storefront. Hidden offers stay saved but clients don't see them. */
-  visible: boolean;
-}
-
-export type OfferField = 'type' | 'name' | 'description' | 'price' | 'lengthWeeks' | 'includes';
+export type OfferField = 'type' | 'name' | 'description' | 'price' | 'lengthWeeks' | 'includes' | 'sessionMinutes';
 export type OfferErrors = Partial<Record<OfferField, string>>;
 
 export const OFFERS_PATH = '/business/offers';
@@ -100,11 +92,14 @@ export function blankOffer(type: OfferType, id: string): OfferDraft {
     includes: [],
     lengthWeeks: null,
     sessionMinutes: type === 'session' ? 60 : null,
-    visible: true,
+    active: true,
+    // Overwritten by the server on create (position is assigned there); harmless placeholder
+    // until then, and simply carried over as-is on every later edit.
+    position: 0,
   };
 }
 
-/** Switching type keeps name, description and includes, and resets the type-specific fields. */
+/** Switching type keeps name, description, includes and position, and resets the type-specific fields. */
 export function changeOfferType(o: OfferDraft, type: OfferType): OfferDraft {
   const fresh = blankOffer(type, o.id);
   return {
@@ -112,7 +107,8 @@ export function changeOfferType(o: OfferDraft, type: OfferType): OfferDraft {
     name: o.name,
     description: o.description,
     includes: o.includes,
-    visible: o.visible,
+    active: o.active,
+    position: o.position,
     price: { ...fresh.price, unitAmountCents: o.price.unitAmountCents },
   };
 }
@@ -175,4 +171,81 @@ export function moveOffer(list: OfferDraft[], id: string, dir: -1 | 1): OfferDra
   const next = list.slice();
   [next[i], next[j]] = [next[j], next[i]];
   return next;
+}
+
+// --- Backend calls -----------------------------------------------------------------------
+
+export function toCreateRequest(o: OfferDraft): CreateOfferRequest {
+  return {
+    type: o.type,
+    name: o.name,
+    description: o.description,
+    price: o.price,
+    includes: o.includes,
+    lengthWeeks: o.lengthWeeks,
+    sessionMinutes: o.sessionMinutes,
+  };
+}
+
+/** The offer builder always submits the whole draft, so this sends every field rather than a true partial patch. */
+export function toUpdateRequest(o: OfferDraft): UpdateOfferRequest {
+  return {
+    name: o.name,
+    description: o.description,
+    active: o.active,
+    price: o.price,
+    includes: o.includes,
+    lengthWeeks: o.lengthWeeks,
+    sessionMinutes: o.sessionMinutes,
+  };
+}
+
+// The backend's field-error keys don't line up 1:1 with the form's own field slots (there's one
+// price box for both unitAmountCents and interval; type/active have no dedicated slot at all) —
+// this maps its keys onto this form's own OfferField names.
+function mapOfferFields(fields?: Record<string, string>): OfferErrors {
+  if (!fields) return {};
+  const errors: OfferErrors = {};
+  if (fields.name) errors.name = fields.name;
+  if (fields.includes) errors.includes = fields.includes;
+  if (fields.lengthWeeks) errors.lengthWeeks = fields.lengthWeeks;
+  if (fields.sessionMinutes) errors.sessionMinutes = fields.sessionMinutes;
+  if (fields.unitAmountCents) errors.price = fields.unitAmountCents;
+  else if (fields.interval) errors.price = fields.interval;
+  return errors;
+}
+
+export type OfferResult = { ok: true; offer: CoachOfferSummary } | { ok: false; message: string; fieldErrors: OfferErrors };
+
+export async function fetchOffers(): Promise<{ ok: true; offers: CoachOfferSummary[] } | { ok: false; message: string }> {
+  const result = await apiFetch<{ offers: CoachOfferSummary[] }>('/api/offers');
+  if (result.success) return { ok: true, offers: result.data.offers };
+  return { ok: false, message: result.message };
+}
+
+export async function createOfferApi(input: CreateOfferRequest): Promise<OfferResult> {
+  const result = await apiFetch<{ offer: CoachOfferSummary }>('/api/offers', { method: 'POST', body: input });
+  if (result.success) return { ok: true, offer: result.data.offer };
+  return { ok: false, message: result.message, fieldErrors: mapOfferFields(result.fields) };
+}
+
+export async function updateOfferApi(id: string, input: UpdateOfferRequest): Promise<OfferResult> {
+  const result = await apiFetch<{ offer: CoachOfferSummary }>(`/api/offers/${id}`, { method: 'PATCH', body: input });
+  if (result.success) return { ok: true, offer: result.data.offer };
+  return { ok: false, message: result.message, fieldErrors: mapOfferFields(result.fields) };
+}
+
+export async function deleteOfferApi(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const result = await apiFetch<{ id: string }>(`/api/offers/${id}`, { method: 'DELETE' });
+  if (result.success) return { ok: true };
+  return { ok: false, message: result.message };
+}
+
+export async function reorderOffersApi(orderedIds: string[]): Promise<{ ok: true } | { ok: false; message: string }> {
+  const result = await apiFetch<{ orderedIds: string[] }>('/api/offers/reorder', {
+    method: 'PATCH',
+    body: { orderedIds },
+  });
+  if (result.success) return { ok: true };
+  return { ok: false, message: result.message };
 }

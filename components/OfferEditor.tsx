@@ -12,6 +12,8 @@ import {
   blankOffer,
   centsToInput,
   changeOfferType,
+  createOfferApi,
+  deleteOfferApi,
   DESCRIPTION_MAX,
   finalizeOffer,
   INCLUDES_MAX,
@@ -20,6 +22,9 @@ import {
   OFFERS_PATH,
   parsePriceToCents,
   SESSION_LENGTHS,
+  toCreateRequest,
+  toUpdateRequest,
+  updateOfferApi,
   validateOffer,
   type OfferDraft,
   type OfferErrors,
@@ -38,13 +43,14 @@ type Props = { mode: 'new'; initialType: OfferType } | { mode: 'edit'; id: strin
 
 export function OfferEditor(props: Props) {
   const router = useRouter();
-  const { offers, saveOffer, deleteOffer, hydrated, toast } = useAppState();
+  const { offers, refreshOffers, hydrated, toast } = useAppState();
   const existing = props.mode === 'edit' ? offers.find((o) => o.id === props.id) : undefined;
 
   const [draft, setDraft] = useState<OfferDraft>(() => blankOffer(props.mode === 'new' ? props.initialType : 'subscription', newId()));
   const [priceInput, setPriceInput] = useState('');
   const [errors, setErrors] = useState<OfferErrors>({});
   const [loaded, setLoaded] = useState(props.mode === 'new');
+  const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Editing: load the saved offer once the store has hydrated from localStorage.
@@ -86,7 +92,7 @@ export function OfferEditor(props: Props) {
     update({ includes: draft.includes.map((x, j) => (j === i ? v : x)) }, 'includes');
   }
 
-  function onSubmit(e: FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const next = validateOffer(draft, priceInput);
     setErrors(next);
@@ -94,13 +100,33 @@ export function OfferEditor(props: Props) {
       document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
       return;
     }
-    saveOffer(finalizeOffer(draft, priceInput));
-    toast(props.mode === 'new' ? `Added ${draft.name.trim()}` : 'Offer saved');
+    const finalized = finalizeOffer(draft, priceInput);
+    setSaving(true);
+    const result =
+      props.mode === 'new' ? await createOfferApi(toCreateRequest(finalized)) : await updateOfferApi(finalized.id, toUpdateRequest(finalized));
+    setSaving(false);
+
+    if (!result.ok) {
+      setErrors(result.fieldErrors);
+      if (Object.keys(result.fieldErrors).length === 0) toast(result.message);
+      else document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
+
+    await refreshOffers();
+    toast(props.mode === 'new' ? `Added ${finalized.name}` : 'Offer saved');
     router.push(OFFERS_PATH);
   }
 
-  function onDelete() {
-    deleteOffer(draft.id);
+  async function onDelete() {
+    setSaving(true);
+    const result = await deleteOfferApi(draft.id);
+    setSaving(false);
+    if (!result.ok) {
+      toast(result.message);
+      return;
+    }
+    await refreshOffers();
     toast(`Deleted ${draft.name || 'offer'}`);
     router.push(OFFERS_PATH);
   }
@@ -313,7 +339,7 @@ export function OfferEditor(props: Props) {
           <fieldset className="ins-offer-section">
             <legend className="ins-offer-legend">Visibility</legend>
             <label className="ins-check">
-              <input type="checkbox" checked={draft.visible} onChange={(e) => update({ visible: e.target.checked })} />
+              <input type="checkbox" checked={draft.active} onChange={(e) => update({ active: e.target.checked })} />
               <span>
                 Show on my storefront. Untick to keep it saved but hidden from clients.
               </span>
@@ -321,7 +347,7 @@ export function OfferEditor(props: Props) {
           </fieldset>
 
           <div className="ins-sf-foot">
-            <button type="submit" className="ins-btn go">
+            <button type="submit" className="ins-btn go" disabled={saving}>
               {props.mode === 'new' ? 'Add offer' : 'Save changes'}
               <Icon name="arrow" />
             </button>
@@ -332,7 +358,7 @@ export function OfferEditor(props: Props) {
               (confirmDelete ? (
                 <span className="ins-offer-confirm" role="group" aria-label="Confirm delete">
                   <span>Delete this offer?</span>
-                  <button type="button" className="ins-btn ins-btn-bad" onClick={onDelete}>
+                  <button type="button" className="ins-btn ins-btn-bad" onClick={onDelete} disabled={saving}>
                     Delete
                   </button>
                   <button type="button" className="ins-btn quiet" onClick={() => setConfirmDelete(false)}>
@@ -353,7 +379,7 @@ export function OfferEditor(props: Props) {
           <div className="ins-sf-phone">
             <div className="ins-sf-page ins-offer-preview">
               <OfferCard offer={draft} />
-              {!draft.visible && <span className="ins-offer-hidden">Hidden from clients</span>}
+              {!draft.active && <span className="ins-offer-hidden">Hidden from clients</span>}
             </div>
           </div>
           <p className="ins-sf-preview-note">

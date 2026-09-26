@@ -106,7 +106,7 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                     >
                       <Icon name="storefront" />
                       {tile.title}
-                      {!storefront && <span className="ins-nav-setup">Set up</span>}
+                      {!storefront?.completed && <span className="ins-nav-setup">Set up</span>}
                     </Link>
                   );
                 }

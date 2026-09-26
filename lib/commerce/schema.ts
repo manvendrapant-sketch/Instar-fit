@@ -53,6 +53,8 @@ export const payoutStatusEnum = pgEnum('payout_status', [
   'canceled',
 ]);
 
+export const coachingModeEnum = pgEnum('coaching_mode', ['online', 'in_person', 'both']);
+
 export const coaches = pgTable(
   'coaches',
   {
@@ -64,6 +66,17 @@ export const coaches = pgTable(
     displayName: text('display_name').notNull(),
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
+    // The storefront creator's fields beyond the basics above — all editable via
+    // GET/PATCH /api/coach/profile. `specialties`/`location`/`coachingMode` are public
+    // (CoachPublicProfile); `timeZone` is used for session/check-in times and is never shown on
+    // the public storefront.
+    specialties: jsonb('specialties').$type<string[]>().default([]).notNull(),
+    location: text('location'),
+    coachingMode: coachingModeEnum('coaching_mode').default('online').notNull(),
+    timeZone: text('time_zone').default('America/New_York').notNull(),
+    // Null until the coach's first PATCH /api/coach/profile — distinguishes "hasn't set up a
+    // storefront yet" from "has one with all-default values".
+    storefrontCompletedAt: timestamp('storefront_completed_at', { withTimezone: true }),
     // Gates GET /api/coach/[handle] (the public storefront) — set via PATCH /api/storefront, only
     // once the storefront-publish endpoint's readiness gate (Connect payouts ready + >=1 active
     // offer) passes.
@@ -109,6 +122,12 @@ export const offers = pgTable('offers', {
   // Display order in the offer builder and on the public storefront. Set by
   // PATCH /api/offers/reorder; a newly created offer is appended (max position + 1).
   position: integer('position').default(0).notNull(),
+  // Bullet points shown under the offer's description, e.g. "Weekly check-in".
+  includes: jsonb('includes').$type<string[]>().default([]).notNull(),
+  // Set only for `one_time` offers; null for subscription / session.
+  lengthWeeks: integer('length_weeks'),
+  // Set only for `session` offers; null for subscription / one_time.
+  sessionMinutes: integer('session_minutes'),
   stripeProductId: text('stripe_product_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

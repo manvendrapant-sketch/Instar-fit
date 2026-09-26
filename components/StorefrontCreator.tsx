@@ -19,10 +19,13 @@ import {
   locationLine,
   LOCATION_MAX,
   normalizeHandle,
+  saveProfile,
+  setStorefrontPublished,
   SPECIALTIES,
   SPECIALTIES_MAX,
   SPECIALTY_MAX_LEN,
   timeZoneLabel,
+  toUpdateProfileRequest,
   validateStorefront,
   withStorefrontDefaults,
   type CoachingMode,
@@ -36,8 +39,8 @@ function initials(name: string) {
 }
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
-  const { storefront, saveStorefront, toast, offers, payouts } = useAppState();
-  const shownOffers = offers.filter((o) => o.visible);
+  const { storefront, refreshStorefront, storefrontStatus, refreshStorefrontStatus, hydrated, toast, offers, payouts } = useAppState();
+  const shownOffers = offers.filter((o) => o.active);
   const hasOffer = offers.length > 0;
   const payoutsReady = isPayoutsReady(payouts);
   // Time zone starts as a fixed default so server and client render the same markup; the
@@ -47,13 +50,15 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
   const [customSpecialty, setCustomSpecialty] = useState('');
   const [errors, setErrors] = useState<Partial<Record<StorefrontField, string>>>({});
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Prefill from a saved storefront once the store hydrates (for "Edit details"); otherwise
-  // use this device's time zone.
+  // Prefill from the loaded profile once it's completed (so "Edit details" starts from what's
+  // saved); otherwise use this device's time zone.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (storefront) setDraft(storefront);
+    if (storefront?.completed) setDraft(storefront);
     else setDraft((d) => ({ ...d, timeZone: detectTimeZone() }));
   }, [storefront]);
 
@@ -69,7 +74,10 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     setZones(list);
   }, []);
 
-  const set = <K extends keyof StorefrontDraft>(key: K, value: StorefrontDraft[K]) => {
+  if (!hydrated || !storefront) return null;
+
+  // Only the fields the form itself edits — never `completed`, which the server derives.
+  const set = <K extends Exclude<keyof StorefrontDraft, 'completed'>>(key: K, value: StorefrontDraft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
     // Editing a field clears its error; the next submit re-checks everything.
     const field: StorefrontField = key === 'avatarUrl' ? 'avatar' : key === 'coachingMode' ? 'location' : key;
@@ -96,7 +104,7 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     reader.readAsDataURL(file);
   }
 
-  function onSubmit(e: FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const clean = {
       ...draft,
@@ -107,9 +115,32 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     const next = validateStorefront(clean);
     setErrors(next);
     if (Object.keys(next).length > 0) return;
-    saveStorefront(clean);
+
+    setSaving(true);
+    const result = await saveProfile(toUpdateProfileRequest(clean));
+    setSaving(false);
+
+    if (!result.ok) {
+      setErrors(result.fieldErrors);
+      if (Object.keys(result.fieldErrors).length === 0) toast(result.message);
+      return;
+    }
+
+    await Promise.all([refreshStorefront(), refreshStorefrontStatus()]);
     setEditing(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function onPublishToggle(published: boolean) {
+    setPublishing(true);
+    const result = await setStorefrontPublished(published);
+    setPublishing(false);
+    if (!result.ok) {
+      toast(result.message);
+      return;
+    }
+    await refreshStorefrontStatus();
+    toast(published ? "You're live." : 'Storefront hidden.');
   }
 
   const toggleSpecialty = (s: string) =>
@@ -124,8 +155,8 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
 
   const status = handleStatus(draft.handle);
   const bioLen = (draft.bio ?? '').length;
-  const showForm = !storefront || editing;
-  const shown = showForm ? draft : storefront!;
+  const showForm = !storefront.completed || editing;
+  const shown = showForm ? draft : storefront;
 
   return (
     <>
@@ -358,11 +389,11 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
             </div>
 
             <div className="ins-sf-foot">
-              <button type="submit" className="ins-btn go">
-                {storefront ? 'Save changes' : 'Create storefront'}
+              <button type="submit" className="ins-btn go" disabled={saving}>
+                {storefront.completed ? 'Save changes' : 'Create storefront'}
                 <Icon name="arrow" />
               </button>
-              {storefront && (
+              {storefront.completed && (
                 <button type="button" className="ins-btn quiet" onClick={() => {
                     setDraft(storefront);
                     setErrors({});
@@ -380,14 +411,16 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
             </span>
             <span className="ins-label">Storefront created</span>
             <h2>
-              <span className="ins-num">{storefront!.handle}.instar.co</span> is yours.
+              <span className="ins-num">{storefront.handle}.instar.co</span> is yours.
             </h2>
             <p>
-              {!hasOffer
-                ? 'It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram bio.'
-                : !payoutsReady
-                  ? 'It isn’t public yet. Connect payouts, then publish it and put the link in your Instagram bio.'
-                  : 'You’re ready to publish. Publishing is coming in the next update.'}
+              {storefrontStatus?.published
+                ? 'It’s live. Clients can open your link, pick an offer and pay you.'
+                : !hasOffer
+                  ? 'It isn’t public yet. Add an offer and connect payouts, then publish it and put the link in your Instagram bio.'
+                  : !payoutsReady
+                    ? 'It isn’t public yet. Connect payouts, then publish it and put the link in your Instagram bio.'
+                    : 'You’re ready to publish.'}
             </p>
             <ol className="ins-sf-steps">
               <li className="done">
@@ -416,11 +449,36 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
                   <Link href={PAYOUTS_PATH}>Connect payouts to publish</Link>
                 </li>
               )}
+              {storefrontStatus?.published ? (
+                <li className="done">
+                  <Icon name="check" className="ins-i sm" />
+                  Publish
+                </li>
+              ) : (
+                <li>
+                  <span className="ins-sf-step-n">4</span>
+                  Publish
+                </li>
+              )}
             </ol>
             <div className="ins-actions">
-              <Link href={hasOffer ? OFFERS_PATH : `${OFFERS_PATH}/new`} className={`ins-btn ${hasOffer ? '' : 'go'}`}>
+              {storefrontStatus?.published ? (
+                <button type="button" className="ins-btn" onClick={() => onPublishToggle(false)} disabled={publishing}>
+                  Unpublish
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ins-btn go"
+                  onClick={() => onPublishToggle(true)}
+                  disabled={publishing || !storefrontStatus?.canPublish}
+                >
+                  Publish
+                  <Icon name="arrow" />
+                </button>
+              )}
+              <Link href={hasOffer ? OFFERS_PATH : `${OFFERS_PATH}/new`} className="ins-btn">
                 {hasOffer ? 'Manage offers' : 'Add your first offer'}
-                {!hasOffer && <Icon name="arrow" />}
               </Link>
               <button type="button" className="ins-btn" onClick={() => setEditing(true)}>
                 Edit details
@@ -429,8 +487,8 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
                 type="button"
                 className="ins-btn quiet"
                 onClick={() => {
-                  navigator.clipboard?.writeText(`${storefront!.handle}.instar.co`).catch(() => {});
-                  toast(`Copied ${storefront!.handle}.instar.co`);
+                  navigator.clipboard?.writeText(`${storefront.handle}.instar.co`).catch(() => {});
+                  toast(`Copied ${storefront.handle}.instar.co`);
                 }}
               >
                 Copy link

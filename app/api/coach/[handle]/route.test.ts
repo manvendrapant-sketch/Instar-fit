@@ -45,19 +45,24 @@ describe('GET /api/coach/[handle]', () => {
       displayName: 'Maya Reyes',
       bio: 'Strength coach',
       avatarUrl: null,
+      specialties: ['Strength'],
+      location: 'Austin, TX',
+      coachingMode: 'online' as const,
       published: true,
     };
     const select = jest.fn().mockReturnValue(
       selectOffersChain([
         {
-          id: 'offer-1',
-          type: 'one_time',
-          name: 'Kickoff call',
-          description: null,
-          currency: 'usd',
-          unitAmountCents: 5000,
-          interval: null,
-          intervalCount: null,
+          offer: {
+            id: 'offer-1',
+            type: 'one_time',
+            name: 'Kickoff call',
+            description: null,
+            includes: ['Custom plan'],
+            lengthWeeks: 12,
+            sessionMinutes: null,
+          },
+          price: { currency: 'usd', unitAmountCents: 5000, interval: null, intervalCount: null },
         },
       ]),
     );
@@ -70,7 +75,10 @@ describe('GET /api/coach/[handle]', () => {
       data: {
         handle: 'maya-reyes',
         displayName: 'Maya Reyes',
-        offers: [{ id: 'offer-1', name: 'Kickoff call', price: { unitAmountCents: 5000 } }],
+        specialties: ['Strength'],
+        location: 'Austin, TX',
+        coachingMode: 'online',
+        offers: [{ id: 'offer-1', name: 'Kickoff call', includes: ['Custom plan'], price: { unitAmountCents: 5000 } }],
       },
     });
   });

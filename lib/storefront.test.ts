@@ -1,12 +1,16 @@
 import {
   addSpecialty,
   BIO_MAX,
+  fetchProfile,
   handleStatus,
   isTimeZone,
   locationLine,
   normalizeHandle,
+  saveProfile,
+  setStorefrontPublished,
   SPECIALTIES_MAX,
   timeZoneLabel,
+  toUpdateProfileRequest,
   validateStorefront,
   withStorefrontDefaults,
   type StorefrontDraft,
@@ -21,6 +25,7 @@ const valid: StorefrontDraft = {
   location: null,
   coachingMode: 'online',
   timeZone: 'America/Chicago',
+  completed: true,
 };
 
 describe('normalizeHandle', () => {
@@ -116,13 +121,88 @@ describe('location and time zone', () => {
 });
 
 describe('withStorefrontDefaults', () => {
-  it('fills fields missing from storefronts saved before they existed', () => {
-    const old = withStorefrontDefaults({ handle: 'maya', displayName: 'Maya', bio: 'Hi', avatarUrl: null });
-    expect(old).toMatchObject({ handle: 'maya', bio: 'Hi', specialties: [], location: null, coachingMode: 'online' });
-    expect(isTimeZone(old.timeZone)).toBe(true);
+  it('fills in the rest of the profile from just a handle and display name', () => {
+    const draft = withStorefrontDefaults({ handle: 'maya', displayName: 'Maya', bio: 'Hi', avatarUrl: null });
+    expect(draft).toMatchObject({ handle: 'maya', bio: 'Hi', specialties: [], location: null, coachingMode: 'online', completed: false });
+    expect(isTimeZone(draft.timeZone)).toBe(true);
   });
 
   it('keeps values that are already there', () => {
     expect(withStorefrontDefaults(valid)).toEqual(valid);
+  });
+});
+
+describe('toUpdateProfileRequest', () => {
+  it('drops the completed flag, which the server derives itself', () => {
+    expect(toUpdateProfileRequest(valid)).toEqual({
+      handle: 'maya-reyes',
+      displayName: 'Maya Reyes',
+      bio: null,
+      avatarUrl: null,
+      specialties: ['Strength'],
+      location: null,
+      coachingMode: 'online',
+      timeZone: 'America/Chicago',
+    });
+  });
+});
+
+describe('fetchProfile / saveProfile (fetch wrappers)', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function mockFetchJson(body: unknown) {
+    global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve(body) }) as typeof fetch;
+  }
+
+  it('fetchProfile() returns the profile on success', async () => {
+    mockFetchJson({ success: true, message: 'Profile loaded.', data: valid });
+    expect(await fetchProfile()).toEqual({ ok: true, profile: valid });
+  });
+
+  it('saveProfile() maps the backend\'s field errors onto StorefrontField keys', async () => {
+    mockFetchJson({
+      success: false,
+      code: 'HANDLE_TAKEN',
+      message: 'maya.instar.co is taken. Try another.',
+      fields: { handle: 'maya.instar.co is taken. Try another.' },
+    });
+    const result = await saveProfile(toUpdateProfileRequest(valid));
+    expect(result).toEqual({
+      ok: false,
+      message: 'maya.instar.co is taken. Try another.',
+      fieldErrors: { handle: 'maya.instar.co is taken. Try another.' },
+    });
+  });
+
+  it('saveProfile() PATCHes /api/coach/profile and returns the saved profile on success', async () => {
+    mockFetchJson({ success: true, message: 'Storefront saved.', data: valid });
+    const result = await saveProfile(toUpdateProfileRequest(valid));
+    expect(result).toEqual({ ok: true, profile: valid });
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/coach/profile',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify(toUpdateProfileRequest(valid)) }),
+    );
+  });
+
+  it('setStorefrontPublished() PATCHes /api/storefront with the published flag', async () => {
+    const status = { handle: 'maya-reyes', published: true, canPublish: true, connectStatus: 'ready' as const, publicUrl: '/maya-reyes' };
+    mockFetchJson({ success: true, message: "You're live.", data: status });
+    const result = await setStorefrontPublished(true);
+    expect(result).toEqual({ ok: true, status });
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/storefront',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ published: true }) }),
+    );
+  });
+
+  it('setStorefrontPublished() returns ok:false with the backend message on failure', async () => {
+    mockFetchJson({ success: false, code: 'NOT_READY', message: 'Finish setting up payouts and add at least one offer before publishing.' });
+    expect(await setStorefrontPublished(true)).toEqual({
+      ok: false,
+      message: 'Finish setting up payouts and add at least one offer before publishing.',
+    });
   });
 });

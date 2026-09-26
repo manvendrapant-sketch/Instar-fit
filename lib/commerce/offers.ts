@@ -1,15 +1,23 @@
 import 'server-only';
 import { getStripe } from '@/lib/stripe/client';
-import type { BillingInterval, OfferPrice, OfferType } from './types';
+import type { offers, prices } from './schema';
+import type { BillingInterval, CoachOfferSummary, OfferPrice, OfferType } from './types';
 
 const OFFER_TYPES: OfferType[] = ['subscription', 'one_time', 'session'];
 const BILLING_INTERVALS: BillingInterval[] = ['week', 'month', 'year'];
+
+// Mirrors the offer builder's own limits (lib/offers.ts, frontend) — keep the two in sync.
+const INCLUDES_MAX = 8;
+const INCLUDE_ITEM_MAX = 80;
 
 export interface OfferInput {
   type: OfferType;
   name: string;
   description: string | null;
   price: OfferPrice;
+  includes: string[];
+  lengthWeeks: number | null;
+  sessionMinutes: number | null;
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -44,6 +52,46 @@ function validatePrice(
   return { currency, unitAmountCents, interval: null, intervalCount: null };
 }
 
+function validateIncludes(raw: unknown, errors: Record<string, string>): string[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw) || !raw.every((i) => typeof i === 'string')) {
+    errors.includes = 'includes must be an array of strings.';
+    return [];
+  }
+  const items = raw.map((i) => i.trim()).filter(Boolean);
+  if (items.length > INCLUDES_MAX) errors.includes = `List up to ${INCLUDES_MAX} things.`;
+  else if (items.some((i) => i.length > INCLUDE_ITEM_MAX)) errors.includes = `Keep each line under ${INCLUDE_ITEM_MAX} characters.`;
+  return items;
+}
+
+/** `one_time` offers only; must be null for every other type. */
+function validateLengthWeeks(type: OfferType, raw: unknown, errors: Record<string, string>): number | null {
+  if (type !== 'one_time') {
+    if (raw != null) errors.lengthWeeks = 'Only one-time offers can have a program length.';
+    return null;
+  }
+  if (raw == null) return null;
+  if (!(typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= 52)) {
+    errors.lengthWeeks = 'Use 1 to 52 weeks, or leave it blank.';
+    return null;
+  }
+  return raw;
+}
+
+/** `session` offers only; must be null for every other type. */
+function validateSessionMinutes(type: OfferType, raw: unknown, errors: Record<string, string>): number | null {
+  if (type !== 'session') {
+    if (raw != null) errors.sessionMinutes = 'Only single-session offers can have a session length.';
+    return null;
+  }
+  if (raw == null) return null;
+  if (!(typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= 480)) {
+    errors.sessionMinutes = 'Enter a session length in minutes (up to 480).';
+    return null;
+  }
+  return raw;
+}
+
 /** Full validation for POST /api/offers (type is required and fixed for the offer's lifetime). */
 export function validateCreateOfferInput(body: unknown): { errors: Record<string, string> } | { value: OfferInput } {
   const errors: Record<string, string> = {};
@@ -60,9 +108,12 @@ export function validateCreateOfferInput(body: unknown): { errors: Record<string
     typeof b.description === 'string' && b.description.trim().length > 0 ? b.description.trim() : null;
 
   const price = validatePrice(type ?? 'one_time', (b.price ?? {}) as Record<string, unknown>, errors);
+  const includes = validateIncludes(b.includes, errors);
+  const lengthWeeks = validateLengthWeeks(type ?? 'one_time', b.lengthWeeks, errors);
+  const sessionMinutes = validateSessionMinutes(type ?? 'one_time', b.sessionMinutes, errors);
 
   if (Object.keys(errors).length > 0) return { errors };
-  return { value: { type: type as OfferType, name, description, price } };
+  return { value: { type: type as OfferType, name, description, price, includes, lengthWeeks, sessionMinutes } };
 }
 
 export interface UpdateOfferInput {
@@ -70,6 +121,9 @@ export interface UpdateOfferInput {
   description?: string | null;
   active?: boolean;
   price?: OfferPrice;
+  includes?: string[];
+  lengthWeeks?: number | null;
+  sessionMinutes?: number | null;
 }
 
 /** Partial validation for PATCH /api/offers/[id] — `existingType` decides the price's interval rules. */
@@ -99,6 +153,18 @@ export function validateUpdateOfferInput(
 
   if ('price' in b) {
     value.price = validatePrice(existingType, (b.price ?? {}) as Record<string, unknown>, errors);
+  }
+
+  if ('includes' in b) {
+    value.includes = validateIncludes(b.includes, errors);
+  }
+
+  if ('lengthWeeks' in b) {
+    value.lengthWeeks = validateLengthWeeks(existingType, b.lengthWeeks, errors);
+  }
+
+  if ('sessionMinutes' in b) {
+    value.sessionMinutes = validateSessionMinutes(existingType, b.sessionMinutes, errors);
   }
 
   if (Object.keys(errors).length > 0) return { errors };
@@ -135,4 +201,25 @@ export async function createStripeReplacementPrice(
     ...(price.interval ? { recurring: { interval: price.interval, interval_count: price.intervalCount ?? 1 } } : {}),
   });
   return { stripePriceId: created.id };
+}
+
+/** Builds the API shape from an offer row plus its active price row — the one place every offer route assembles this. */
+export function toCoachOfferSummary(offer: typeof offers.$inferSelect, price: typeof prices.$inferSelect): CoachOfferSummary {
+  return {
+    id: offer.id,
+    type: offer.type,
+    name: offer.name,
+    description: offer.description,
+    active: offer.active,
+    position: offer.position,
+    includes: offer.includes,
+    lengthWeeks: offer.lengthWeeks,
+    sessionMinutes: offer.sessionMinutes,
+    price: {
+      currency: price.currency,
+      unitAmountCents: price.unitAmountCents,
+      interval: price.interval,
+      intervalCount: price.intervalCount,
+    },
+  };
 }

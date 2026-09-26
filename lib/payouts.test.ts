@@ -1,8 +1,7 @@
 import {
-  isMockResult,
+  createAccountLink,
+  fetchOnboardingStatus,
   isPayoutsReady,
-  MOCK_READY,
-  mockStatusAfter,
   NOT_STARTED,
   PAYOUT_STEPS,
   requirementLabel,
@@ -10,6 +9,8 @@ import {
   STATUS_COPY,
   stepIndex,
 } from './payouts';
+
+const READY = { status: 'ready' as const, chargesEnabled: true, payoutsEnabled: true, requirementsDue: [] };
 
 describe('steps', () => {
   it('orders the four statuses and has copy for each', () => {
@@ -42,26 +43,52 @@ describe('requirementLabel', () => {
 
 describe('isPayoutsReady', () => {
   it('needs the ready status and both capabilities', () => {
-    expect(isPayoutsReady(MOCK_READY)).toBe(true);
+    expect(isPayoutsReady(READY)).toBe(true);
     expect(isPayoutsReady(NOT_STARTED)).toBe(false);
-    expect(isPayoutsReady({ ...MOCK_READY, payoutsEnabled: false })).toBe(false);
-    expect(isPayoutsReady({ ...MOCK_READY, chargesEnabled: false })).toBe(false);
+    expect(isPayoutsReady({ ...READY, payoutsEnabled: false })).toBe(false);
+    expect(isPayoutsReady({ ...READY, chargesEnabled: false })).toBe(false);
   });
 });
 
-describe('mock Stripe outcomes', () => {
-  it('maps each outcome to a consistent status', () => {
-    expect(mockStatusAfter('finished').status).toBe('pending_review');
-    expect(mockStatusAfter('verified')).toEqual(MOCK_READY);
-    const early = mockStatusAfter('left_early');
-    expect(early.status).toBe('action_needed');
-    expect(early.requirementsDue.length).toBeGreaterThan(0);
-    expect(early.chargesEnabled || early.payoutsEnabled).toBe(false);
+describe('fetchOnboardingStatus / createAccountLink (fetch wrappers)', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
-  it('recognises valid outcomes only', () => {
-    expect(isMockResult('finished')).toBe(true);
-    expect(isMockResult('hacked')).toBe(false);
-    expect(isMockResult(undefined)).toBe(false);
+  function mockFetchJson(body: unknown) {
+    global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve(body) }) as typeof fetch;
+  }
+
+  it('fetchOnboardingStatus() returns ok:true with the status on success', async () => {
+    mockFetchJson({ success: true, message: 'Onboarding status loaded.', data: READY });
+    const result = await fetchOnboardingStatus();
+    expect(result).toEqual({ ok: true, status: READY });
+    expect(global.fetch).toHaveBeenCalledWith('/api/coach/onboarding-status', { method: 'GET', headers: undefined, body: undefined });
+  });
+
+  it('fetchOnboardingStatus() returns ok:false with the backend message on failure', async () => {
+    mockFetchJson({ success: false, code: 'NOT_AUTHENTICATED', message: 'You are not logged in.' });
+    const result = await fetchOnboardingStatus();
+    expect(result).toEqual({ ok: false, message: 'You are not logged in.' });
+  });
+
+  it('createAccountLink() posts the return/refresh paths and returns the url on success', async () => {
+    mockFetchJson({ success: true, message: 'Account link created.', data: { url: 'https://connect.stripe.com/x' } });
+    const result = await createAccountLink({ returnPath: '/business/payouts/return', refreshPath: '/business/payouts/connect' });
+    expect(result).toEqual({ ok: true, url: 'https://connect.stripe.com/x' });
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/coach/connect/account-link',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ returnPath: '/business/payouts/return', refreshPath: '/business/payouts/connect' }),
+      }),
+    );
+  });
+
+  it('createAccountLink() returns ok:false with the backend message on failure', async () => {
+    mockFetchJson({ success: false, code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' });
+    const result = await createAccountLink({});
+    expect(result).toEqual({ ok: false, message: 'Something went wrong. Please try again.' });
   });
 });

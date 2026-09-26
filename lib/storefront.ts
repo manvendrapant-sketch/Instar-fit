@@ -1,21 +1,11 @@
-import type { CoachPublicProfile } from './commerce/types';
+import { apiFetch } from './api-client';
+import type { CoachingMode, CoachProfile, StorefrontStatus, UpdateCoachProfileRequest } from './commerce/types';
 
-// Storefront creation, frontend only. The draft is the part of the public profile a coach fills
-// in at creation, plus specialties, location and time zone, which the contract
-// (lib/commerce/types.ts CoachPublicProfile) doesn't carry yet: flag to Manvendra before wiring
-// the real API. Offers come from the offer builder. Nothing here calls a server.
-
-export type CoachingMode = 'online' | 'in_person' | 'both';
-
-export interface StorefrontDraft extends Pick<CoachPublicProfile, 'handle' | 'displayName' | 'bio' | 'avatarUrl'> {
-  /** 1 to SPECIALTIES_MAX, shown as tags under the coach's name. */
-  specialties: string[];
-  /** Free text, e.g. "Austin, TX". Optional. */
-  location: string | null;
-  coachingMode: CoachingMode;
-  /** IANA zone, e.g. "America/Chicago". Used for session and check-in times, not shown on the profile. */
-  timeZone: string;
-}
+// Storefront creation. The draft is exactly the real API's CoachProfile (GET/PATCH
+// /api/coach/profile) — offers come from the offer builder instead, so this file's own concern
+// is the profile fields plus handle-format checks the API itself also enforces.
+export type { CoachingMode };
+export type StorefrontDraft = CoachProfile;
 export type StorefrontField = 'handle' | 'displayName' | 'bio' | 'avatar' | 'specialties' | 'location' | 'timeZone';
 
 export const STOREFRONT_PATH = '/business/storefront';
@@ -90,8 +80,9 @@ export function locationLine(d: Pick<StorefrontDraft, 'location' | 'coachingMode
 }
 
 /**
- * Storefronts saved before specialties/location/time zone existed are missing those fields;
- * fill them so older saved drafts still load.
+ * Builds a full draft from partial info — the storefront creator starts from just the
+ * handle/displayName the session's JWT already carries, before GET /api/coach/profile's real
+ * answer comes back.
  */
 export function withStorefrontDefaults(d: Partial<StorefrontDraft> & Pick<StorefrontDraft, 'handle' | 'displayName'>): StorefrontDraft {
   return {
@@ -100,6 +91,7 @@ export function withStorefrontDefaults(d: Partial<StorefrontDraft> & Pick<Storef
     location: null,
     coachingMode: 'online',
     timeZone: detectTimeZone(),
+    completed: false,
     ...d,
     specialties: d.specialties ?? [],
   };
@@ -107,8 +99,11 @@ export function withStorefrontDefaults(d: Partial<StorefrontDraft> & Pick<Storef
 
 const HANDLE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])$/;
 
-// Mock availability until a handle-check endpoint exists. These would clash with app routes
-// or are already taken in the seed data.
+// Words that would collide with an app route once the public storefront lives at /<handle> —
+// permanently reserved, not a stand-in for a real check. lib/commerce/profile.ts validates the
+// same list server-side; keep the two in sync. Whether a *specific* handle belongs to another
+// coach can only be known by the server — PATCH /api/coach/profile is the actual source of truth
+// for that and reports it as a 409 the same way signup reports a taken email.
 const TAKEN_HANDLES = new Set(['instar', 'admin', 'api', 'app', 'help', 'support', 'login', 'signup', 'business', 'clients', 'grow']);
 
 export function normalizeHandle(raw: string) {
@@ -121,6 +116,54 @@ export function handleStatus(handle: string): HandleStatus {
   if (!handle) return 'empty';
   if (!HANDLE.test(handle)) return 'invalid';
   return TAKEN_HANDLES.has(handle) ? 'taken' : 'available';
+}
+
+// --- Backend calls -----------------------------------------------------------------------
+
+export function toUpdateProfileRequest(d: StorefrontDraft): UpdateCoachProfileRequest {
+  return {
+    handle: d.handle,
+    displayName: d.displayName,
+    bio: d.bio,
+    avatarUrl: d.avatarUrl,
+    specialties: d.specialties,
+    location: d.location,
+    coachingMode: d.coachingMode,
+    timeZone: d.timeZone,
+  };
+}
+
+// The backend's field keys line up 1:1 with StorefrontField except "avatar" (no server-side
+// format check on avatarUrl exists to fail).
+function mapProfileFields(fields?: Record<string, string>): Partial<Record<StorefrontField, string>> {
+  if (!fields) return {};
+  const errors: Partial<Record<StorefrontField, string>> = {};
+  for (const key of ['handle', 'displayName', 'bio', 'specialties', 'location', 'timeZone'] as const) {
+    if (fields[key]) errors[key] = fields[key];
+  }
+  return errors;
+}
+
+export async function fetchProfile(): Promise<{ ok: true; profile: CoachProfile } | { ok: false; message: string }> {
+  const result = await apiFetch<CoachProfile>('/api/coach/profile');
+  if (result.success) return { ok: true, profile: result.data };
+  return { ok: false, message: result.message };
+}
+
+export async function saveProfile(
+  input: UpdateCoachProfileRequest,
+): Promise<{ ok: true; profile: CoachProfile } | { ok: false; message: string; fieldErrors: Partial<Record<StorefrontField, string>> }> {
+  const result = await apiFetch<CoachProfile>('/api/coach/profile', { method: 'PATCH', body: input });
+  if (result.success) return { ok: true, profile: result.data };
+  return { ok: false, message: result.message, fieldErrors: mapProfileFields(result.fields) };
+}
+
+export async function setStorefrontPublished(
+  published: boolean,
+): Promise<{ ok: true; status: StorefrontStatus } | { ok: false; message: string }> {
+  const result = await apiFetch<StorefrontStatus>('/api/storefront', { method: 'PATCH', body: { published } });
+  if (result.success) return { ok: true, status: result.data };
+  return { ok: false, message: result.message };
 }
 
 export function validateStorefront(d: StorefrontDraft): Partial<Record<StorefrontField, string>> {

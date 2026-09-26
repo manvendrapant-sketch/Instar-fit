@@ -1,9 +1,11 @@
-import { PATCH } from '@/app/api/offers/[id]/route';
+import { DELETE, PATCH } from '@/app/api/offers/[id]/route';
 import { getDb } from '@/lib/commerce/db';
 import { createStripeReplacementPrice } from '@/lib/commerce/offers';
+import { getStripe } from '@/lib/stripe/client';
 import { requireCoachSession } from '@/lib/auth/require-coach';
 
 jest.mock('@/lib/commerce/db');
+jest.mock('@/lib/stripe/client');
 jest.mock('@/lib/auth/require-coach');
 jest.mock('@/lib/commerce/offers', () => ({
   ...jest.requireActual('@/lib/commerce/offers'),
@@ -20,6 +22,9 @@ const OFFER = {
   description: null,
   active: true,
   position: 0,
+  includes: [] as string[],
+  lengthWeeks: null,
+  sessionMinutes: null,
   stripeProductId: 'prod_1',
 };
 
@@ -131,5 +136,56 @@ describe('PATCH /api/offers/[id]', () => {
       intervalCount: null,
     });
     await expect(res.json()).resolves.toMatchObject({ data: { offer: { price: { unitAmountCents: 7500 } } } });
+  });
+});
+
+function deleteRequest() {
+  return new Request('http://localhost/api/offers/offer-1', { method: 'DELETE' });
+}
+
+describe('DELETE /api/offers/[id]', () => {
+  it('returns 401 when not authenticated', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(null);
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 when the offer does not belong to this coach', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    (getDb as jest.Mock).mockReturnValue({ query: { offers: { findFirst: jest.fn().mockResolvedValue(undefined) } } });
+
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+    expect(res.status).toBe(404);
+  });
+
+  it('deletes the offer and archives its Stripe product', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    const del = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+    (getDb as jest.Mock).mockReturnValue({
+      query: { offers: { findFirst: jest.fn().mockResolvedValue(OFFER) } },
+      delete: del,
+    });
+    const productsUpdate = jest.fn().mockResolvedValue({});
+    (getStripe as jest.Mock).mockReturnValue({ products: { update: productsUpdate } });
+
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+
+    expect(res.status).toBe(200);
+    expect(del).toHaveBeenCalled();
+    expect(productsUpdate).toHaveBeenCalledWith('prod_1', { active: false });
+    await expect(res.json()).resolves.toMatchObject({ data: { id: 'offer-1' } });
+  });
+
+  it('still deletes the offer even if archiving the Stripe product fails', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    const del = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+    (getDb as jest.Mock).mockReturnValue({
+      query: { offers: { findFirst: jest.fn().mockResolvedValue(OFFER) } },
+      delete: del,
+    });
+    (getStripe as jest.Mock).mockReturnValue({ products: { update: jest.fn().mockRejectedValue(new Error('down')) } });
+
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+    expect(res.status).toBe(200);
   });
 });

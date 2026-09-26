@@ -2,7 +2,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/commerce/db';
 import { offers, prices } from '@/lib/commerce/schema';
 import type { CoachOfferSummary } from '@/lib/commerce/types';
-import { createStripeProductAndPrice, validateCreateOfferInput } from '@/lib/commerce/offers';
+import { createStripeProductAndPrice, toCoachOfferSummary, validateCreateOfferInput } from '@/lib/commerce/offers';
 import { requireCoachSession } from '@/lib/auth/require-coach';
 import { apiError, apiSuccess } from '@/lib/api/response';
 
@@ -20,18 +20,7 @@ export async function GET() {
   try {
     const db = getDb();
     const rows = await db
-      .select({
-        id: offers.id,
-        type: offers.type,
-        name: offers.name,
-        description: offers.description,
-        active: offers.active,
-        position: offers.position,
-        currency: prices.currency,
-        unitAmountCents: prices.unitAmountCents,
-        interval: prices.interval,
-        intervalCount: prices.intervalCount,
-      })
+      .select({ offer: offers, price: prices })
       .from(offers)
       // Exactly one active price per offer at a time (editing a price retires the old row) — the
       // active filter here is what keeps that a guarantee rather than an assumption.
@@ -39,21 +28,7 @@ export async function GET() {
       .where(eq(offers.coachId, session.coachId))
       .orderBy(asc(offers.position));
 
-    const summaries: CoachOfferSummary[] = rows.map((r) => ({
-        id: r.id,
-        type: r.type,
-        name: r.name,
-        description: r.description,
-        active: r.active,
-        position: r.position,
-        price: {
-          currency: r.currency,
-          unitAmountCents: r.unitAmountCents,
-          interval: r.interval,
-          intervalCount: r.intervalCount,
-        },
-      }));
-
+    const summaries = rows.map((r) => toCoachOfferSummary(r.offer, r.price));
     return apiSuccess<ListOffersResponseData>({ offers: summaries }, 'Offers loaded.');
   } catch (err) {
     console.error('GET /api/offers failed:', err);
@@ -105,6 +80,9 @@ export async function POST(req: Request) {
         type: input.type,
         name: input.name,
         description: input.description,
+        includes: input.includes,
+        lengthWeeks: input.lengthWeeks,
+        sessionMinutes: input.sessionMinutes,
         stripeProductId,
         position,
       })
@@ -122,22 +100,7 @@ export async function POST(req: Request) {
       })
       .returning();
 
-    const summary: CoachOfferSummary = {
-      id: offer.id,
-      type: offer.type,
-      name: offer.name,
-      description: offer.description,
-      active: offer.active,
-      position: offer.position,
-      price: {
-        currency: price.currency,
-        unitAmountCents: price.unitAmountCents,
-        interval: price.interval,
-        intervalCount: price.intervalCount,
-      },
-    };
-
-    return apiSuccess<CreateOfferResponseData>({ offer: summary }, 'Offer created.', 201);
+    return apiSuccess<CreateOfferResponseData>({ offer: toCoachOfferSummary(offer, price) }, 'Offer created.', 201);
   } catch (err) {
     console.error('POST /api/offers failed:', err);
     return apiError('INTERNAL_ERROR', 'Something went wrong. Please try again.', 500);

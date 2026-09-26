@@ -2,6 +2,7 @@ import { getStripe } from '@/lib/stripe/client';
 import {
   createStripeProductAndPrice,
   createStripeReplacementPrice,
+  toCoachOfferSummary,
   validateCreateOfferInput,
   validateUpdateOfferInput,
 } from './offers';
@@ -54,8 +55,57 @@ describe('validateCreateOfferInput', () => {
         name: 'Monthly coaching',
         description: null,
         price: { currency: 'usd', unitAmountCents: 9900, interval: 'month', intervalCount: 1 },
+        includes: [],
+        lengthWeeks: null,
+        sessionMinutes: null,
       },
     });
+  });
+
+  it('accepts includes, trimming and dropping blank lines', () => {
+    const result = validateCreateOfferInput({
+      type: 'one_time',
+      name: 'Block',
+      price: { unitAmountCents: 9900 },
+      includes: [' Custom plan ', '', '  '],
+    });
+    expect(result).toEqual({ value: expect.objectContaining({ includes: ['Custom plan'] }) });
+  });
+
+  it('rejects more than 8 include lines, or a line over 80 characters', () => {
+    const many = Array.from({ length: 9 }, (_, i) => `Item ${i}`);
+    expect(
+      validateCreateOfferInput({ type: 'one_time', name: 'Block', price: { unitAmountCents: 100 }, includes: many }),
+    ).toHaveProperty('errors.includes');
+    expect(
+      validateCreateOfferInput({
+        type: 'one_time',
+        name: 'Block',
+        price: { unitAmountCents: 100 },
+        includes: ['a'.repeat(81)],
+      }),
+    ).toHaveProperty('errors.includes');
+  });
+
+  it('accepts lengthWeeks only for one_time offers', () => {
+    expect(
+      validateCreateOfferInput({ type: 'one_time', name: 'Block', price: { unitAmountCents: 100 }, lengthWeeks: 12 }),
+    ).toEqual({ value: expect.objectContaining({ lengthWeeks: 12 }) });
+    expect(
+      validateCreateOfferInput({ type: 'session', name: 'Call', price: { unitAmountCents: 100 }, lengthWeeks: 12 }),
+    ).toHaveProperty('errors.lengthWeeks');
+    expect(
+      validateCreateOfferInput({ type: 'one_time', name: 'Block', price: { unitAmountCents: 100 }, lengthWeeks: 53 }),
+    ).toHaveProperty('errors.lengthWeeks');
+  });
+
+  it('accepts sessionMinutes only for session offers', () => {
+    expect(
+      validateCreateOfferInput({ type: 'session', name: 'Call', price: { unitAmountCents: 100 }, sessionMinutes: 30 }),
+    ).toEqual({ value: expect.objectContaining({ sessionMinutes: 30 }) });
+    expect(
+      validateCreateOfferInput({ type: 'one_time', name: 'Block', price: { unitAmountCents: 100 }, sessionMinutes: 30 }),
+    ).toHaveProperty('errors.sessionMinutes');
   });
 });
 
@@ -73,6 +123,41 @@ describe('validateUpdateOfferInput', () => {
   it('validates a replacement price against the offer’s existing type', () => {
     const result = validateUpdateOfferInput({ price: { unitAmountCents: 5000 } }, 'subscription');
     expect(result).toHaveProperty('errors.interval');
+  });
+
+  it('leaves includes/lengthWeeks/sessionMinutes untouched when not provided', () => {
+    const result = validateUpdateOfferInput({ name: 'New name' }, 'one_time');
+    expect(result).toEqual({ value: { name: 'New name' } });
+  });
+});
+
+describe('toCoachOfferSummary', () => {
+  it('assembles the API shape from an offer row and its active price row', () => {
+    const offer = {
+      id: 'offer-1',
+      type: 'session' as const,
+      name: 'Discovery call',
+      description: null,
+      active: true,
+      position: 2,
+      includes: ['Bring water'],
+      lengthWeeks: null,
+      sessionMinutes: 30,
+    };
+    const price = { currency: 'usd', unitAmountCents: 4900, interval: null, intervalCount: null };
+    // @ts-expect-error — test rows are a subset of the full Drizzle row shape.
+    expect(toCoachOfferSummary(offer, price)).toEqual({
+      id: 'offer-1',
+      type: 'session',
+      name: 'Discovery call',
+      description: null,
+      active: true,
+      position: 2,
+      includes: ['Bring water'],
+      lengthWeeks: null,
+      sessionMinutes: 30,
+      price: { currency: 'usd', unitAmountCents: 4900, interval: null, intervalCount: null },
+    });
   });
 });
 
