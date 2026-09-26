@@ -64,6 +64,10 @@ export const coaches = pgTable(
     displayName: text('display_name').notNull(),
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
+    // Gates GET /api/coach/[handle] (the public storefront) — set via PATCH /api/storefront, only
+    // once the storefront-publish endpoint's readiness gate (Connect payouts ready + >=1 active
+    // offer) passes.
+    published: boolean('published').default(false).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -102,6 +106,9 @@ export const offers = pgTable('offers', {
   name: text('name').notNull(),
   description: text('description'),
   active: boolean('active').default(true).notNull(),
+  // Display order in the offer builder and on the public storefront. Set by
+  // PATCH /api/offers/reorder; a newly created offer is appended (max position + 1).
+  position: integer('position').default(0).notNull(),
   stripeProductId: text('stripe_product_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

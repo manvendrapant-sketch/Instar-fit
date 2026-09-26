@@ -318,7 +318,9 @@ this needs a real signup attempt against the live site to know for sure, same as
 
 ### Still open / next up
 
-- Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
+- Pari's Sprint 1 frontend (storefront skeleton at `/[coachHandle]`) hasn't started in this repo
+  yet — the backend APIs it and the rest of her workplan need now exist, see "Storefront APIs"
+  below.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
@@ -410,3 +412,76 @@ something to revisit per-task.
 - Branch naming: `feat/commerce-<short-name>` (Manvendra), `feat/storefront-<short-name>` (Pari).
 - Any Stripe client / DB client constructed at module scope must be lazy (see gotcha above).
 - New functionality ships with a test file in the same change — see "Testing (Jest)" above.
+
+## Storefront APIs — Pari's frontend workplan, backend half (2026-09-26)
+
+Manvendra shared Pari's five-item frontend workplan (`storefront-checklist`, `-offers`, `-payouts`,
+`-publish`, `-public` — all frontend-only with mock data until these exist) plus Stripe test-mode
+keys, and asked for the APIs those branches need, built ahead of the UI — same "mocks now, wire up
+the real thing later" pattern as the rest of Commerce. The test-mode keys (`sk_test_...` /
+`pk_test_...`, pasted directly in chat) went straight into this sandbox's own `.env.local` — never
+committed (confirmed gitignored via `git check-ignore -v .env.local`) and not yet set in Vercel (no
+storefront route is deployed against them yet; that's a "once Pari's UI is ready" step).
+
+**Schema**: migration `0003_sad_diamondback.sql` adds `coaches.published` (bool, default false —
+gates the public storefront) and `offers.position` (int, default 0 — the offer builder's
+reordering). **Same unconfirmed-migration situation as 0000-0002**: generated here, not applied
+anywhere — this sandbox still can't reach Postgres (see "This Claude Code sandbox cannot reach
+Postgres" above, unchanged since that section was written). Hand off the same way: the migration's
+own SQL plus drizzle's bookkeeping-table insert, pasted into Supabase's SQL Editor by the user.
+
+**New routes** (the `{ success, message, data }` envelope from `lib/api/response.ts`, all
+authenticated via the new `lib/auth/require-coach.ts` unless noted public):
+- `GET /api/offers`, `POST /api/offers` — the offer builder's list and create. Create also creates
+  the backing Stripe Product + Price (test mode) via `lib/commerce/offers.ts`'s
+  `createStripeProductAndPrice`, so real ids exist for Sprint 3 checkout to use later even though
+  checkout itself is out of scope here.
+- `PATCH /api/offers/[id]` — edit name/description/active, or replace the price. Stripe Prices are
+  immutable, so a price change creates a new Stripe Price + DB row and retires (`active: false`)
+  the old one rather than mutating it.
+- `PATCH /api/offers/reorder` — body `{ orderedIds }`, must be exactly a permutation of the coach's
+  own offer ids (not a subset, not anyone else's); writes each offer's new `position` in one
+  transaction.
+- `GET /api/offers/quote?unitAmountCents=&currency=` — the offer builder's live "you'll receive"
+  preview: wraps `lib/commerce/money.ts`'s `computeCheckoutBreakdown` with a `coachReceivesCents`
+  field (`baseAmountCents - platformFeeCents`).
+- `GET /api/coach/onboarding-status` — fills in the Sprint-1 stub already in `types.ts`, backed by
+  the new `lib/commerce/connect.ts`'s `deriveConnectStatus` — the one place Stripe's own
+  charges/payouts/details-submitted/requirements-due flags map onto our `ConnectStatus` enum, used
+  by both this route and the publish gate below so the two can't drift apart.
+- `POST /api/coach/connect/account-link` — creates the coach's Stripe Express account on first call
+  (reused after), then always issues a fresh Account Link (`account_onboarding`) since Stripe's
+  links expire in minutes; returns `{ url }` to redirect to. Return/refresh paths default to
+  `/business`, overridable via the request body once Pari's payouts screen has its own route.
+- `GET /api/storefront`, `PATCH /api/storefront` — status (`published`, `canPublish`,
+  `connectStatus`, `publicUrl`) and the publish/unpublish toggle. `canPublish` requires
+  `connectStatus === 'ready'` AND at least one active offer; publishing without both 422s
+  `NOT_READY`. Unpublishing (hiding the storefront again) has no gate.
+- `GET /api/coach/[handle]` — the public storefront page's data, no auth. 404s unless
+  `coaches.published` is true; returns only active offers ordered by `position`. Matches the
+  `CoachPublicProfile` shape already documented in `types.ts`.
+
+New shared types in `lib/commerce/types.ts`: `CoachOfferSummary`, `CreateOfferRequest`,
+`UpdateOfferRequest`, `ReorderOffersRequest`, `OfferQuoteResponse`, `StorefrontStatus`,
+`UpdateStorefrontRequest`, `CreateAccountLinkRequest`/`CreateAccountLinkResponse`.
+
+**New shared helper**: `lib/auth/require-coach.ts` (`requireCoachSession()`) — the cookie-read +
+verify steps `GET /api/auth/me` had inlined, pulled out once eight more routes needed the same
+three lines.
+
+Every new module/route shipped with a test file (standing rule, see "Testing (Jest)" above) — 58
+new tests (`npm test`: 26 suites, 175 tests total now, ~5s). Also verified `npm run build` succeeds
+with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` all unset (the lazy-client convention
+holding for every new route) and that `npx eslint .` / `npx tsc --noEmit` are both clean.
+
+**Not done / deliberately out of scope for this pass**:
+- No live Stripe verification — `.env.local` now has real test-mode keys, but nothing here was
+  exercised against the actual Stripe test API (same network restriction as everywhere else in this
+  file); only unit tests with `getStripe`/`getDb` mocked ran.
+- `account.updated` webhook handling (to refresh `connectedAccounts.chargesEnabled` /
+  `payoutsEnabled` / `requirementsDue` from Stripe) is still Sprint-2+ per the workplan — the
+  webhook route still only dedupes, so a real coach's `onboarding-status` will read
+  `not_started`/`action_needed` indefinitely until that lands.
+- Deleting/archiving an offer beyond `active: false` wasn't asked for and isn't implemented.
+- Mobile checkout (Sprint 3) and everything after it in Pari's workplan is explicitly not part of
+  this ask.
