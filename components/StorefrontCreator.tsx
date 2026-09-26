@@ -15,16 +15,14 @@ import {
   type StorefrontField,
 } from '@/lib/storefront';
 
-const EMPTY: StorefrontDraft = { handle: '', displayName: '', bio: '', avatarUrl: null };
-
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
 }
 
-export function StorefrontCreator() {
+export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
   const { storefront, saveStorefront, toast } = useAppState();
-  const [draft, setDraft] = useState<StorefrontDraft>(EMPTY);
+  const [draft, setDraft] = useState<StorefrontDraft>({ ...defaults, bio: '', avatarUrl: null });
   const [errors, setErrors] = useState<Partial<Record<StorefrontField, string>>>({});
   const [editing, setEditing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
