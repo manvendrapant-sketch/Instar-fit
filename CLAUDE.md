@@ -7,12 +7,15 @@ still undecided, so a session can pick up cold instead of re-deriving context.
 
 ## What this repo is
 
-`manvendrapant-sketch/Instar-fit` — currently holds a **frontend-only prototype** of the Instar
-coach dashboard (the "Today / Clients / Grow / Business" app), built in Next.js 16 (App Router).
-It is a faithful UI replication, not a product with a backend: all data is static/in-memory
-(`lib/data.ts`), there is no auth, no database, no Stripe. Treat it as the design/interaction
-reference for that dashboard, not as the codebase the new Commerce work necessarily lands in
-(see "Open question" below).
+`manvendrapant-sketch/Instar-fit` holds two things now:
+1. A **frontend-only prototype** of the Instar coach dashboard (the "Today / Clients / Grow /
+   Business" app), built in Next.js 16 (App Router). All data there is static/in-memory
+   (`lib/data.ts`) — no auth, no DB, no Stripe. Treat it as the design/interaction reference for
+   that dashboard only.
+2. As of 2026-09-26, the **Commerce pillar backend groundwork** (Sprint 1) — real Postgres schema,
+   a Stripe wrapper, a webhook endpoint, and the shared `/lib/commerce/types.ts` contract. See
+   "Pillar 1 — Commerce" below. It was confirmed this same repo is the right place for it (the
+   workplans' mention of Bitbucket was not followed here — see that section).
 
 ## How the dashboard build happened (for context, not repetition)
 
@@ -74,43 +77,121 @@ piece of work** — turning Instar into a real paid product for coaches:
   coach dashboards, client self-serve. Builds against the shared types Manvendra publishes.
 
 Both workplans reference an **Obsidian vault** (`Decisions.md`, ticking tasks) and PRs going to
-**Bitbucket**, not this GitHub repo. **Open question, unresolved**: whether the Commerce build
-(schema, `/lib/commerce`, `/app/api`, storefront routes) should land in *this* repo
-(`Instar-fit` on GitHub) or a separate Bitbucket repo Claude does not currently have access to.
-Don't assume either way — ask, or wait for a repo to be attached, before writing Commerce code.
+**Bitbucket**. When asked, Manvendra confirmed the Commerce build (schema, `/lib/commerce`,
+`/app/api`, storefront routes) goes in **this** GitHub repo instead — the Bitbucket/Obsidian
+mentions in the workplans are stale for this project. A repo-root `Decisions.md` (see below)
+replaces the Obsidian vault's decision log so it travels with the code.
 
-### First tasks decided when this was discussed
+### Week-1 decisions — RESOLVED 2026-09-26
 
-Not a sprint-1 build task first — a short **decisions meeting** blocks everything else. Settle,
-with Pari (and Sanchit per the workplan):
-1. Stripe Connect account type (workplan recommends Express for fastest KYC/onboarding)
-2. Charge type — destination vs direct (decides who carries dispute/chargeback liability and
-   whose name is on the client's card statement)
-3. How the ~3% processing fee is shown to the client — true surcharge vs a flat "service fee"
-   line (card-network rules and some US state laws restrict surcharging; Pari needs this for
-   checkout copy)
-4. Platform take rate (`application_fee_amount`/`application_fee_percent`, if any)
-5. Confirm the money-in-integer-cents convention (not really a decision — just adopt it, no floats
-   anywhere money is touched)
+See `Decisions.md` for the full rationale. Summary:
+1. **Connect account type**: Express.
+2. **Charge type**: destination charges with `on_behalf_of` set to the coach's connected account
+   (client's statement shows the coach; disputes route to the platform first).
+3. **Fee display**: a flat "Service fee" line item, never a labeled surcharge.
+4. **Platform take rate**: 2% (`PLATFORM_TAKE_RATE_BPS=200`), taken as `application_fee_amount`.
+5. **Money**: integer cents everywhere — adopted, not really a decision.
 
-Immediately after (same day/next), in parallel:
-- **Manvendra**: draft the Postgres schema/migrations and publish the shared contract
-  `/lib/commerce/types.ts` + API route shapes. This is the critical-path task — Pari's Sprint 1
-  and every sprint after builds against it; her own workplan lists "agree the API contract + types
-  with Manvendra (Day 2–3)" as her first Week 1 input. Stripe client wrapper, webhook endpoint
-  skeleton (`/api/webhooks/stripe`) and a seed script follow right behind so Pari has real-shaped
-  (if fake) data.
-- **Pari**: start Sprint 1's storefront skeleton against mock data — the public `/[coachHandle]`
-  route, profile block, SEO/OG metadata — none of this needs the real contract yet. Wire it to
-  Manvendra's actual types as soon as they land, and weigh in on decision #3 above since it drives
-  her checkout copy.
+### Sprint 1 — done in this session (2026-09-26)
+
+Lives on branch `feat/commerce-sprint1-foundations` (pushed, branched from
+`updated-obsidian-plus` since that was the tip at the time — not merged anywhere yet; **merge
+target for Commerce branches is undecided**: `main` is still just the empty initial commit, so
+don't assume Commerce should route through the dashboard's `updated-obsidian-plus` branch either.
+Ask before merging/opening a PR).
+
+Implemented directly (repo target was confirmed, so no need to wait):
+- `lib/commerce/schema.ts` — Drizzle ORM schema for all 11 Sprint-1 tables (`coaches`,
+  `connected_accounts`, `offers`, `prices`, `clients`, `subscriptions`, `payments`, `refunds`,
+  `disputes`, `payouts`, `webhook_events`). Generated migration at `drizzle/0000_*.sql`
+  (`npm run db:generate` to regenerate after a schema change, `npm run db:migrate` to apply).
+- `lib/commerce/types.ts` — the shared API contract Pari builds against. Includes the Sprint-1
+  shapes (`CoachPublicProfile`, `OfferSummary`, `MoneyBreakdown`) plus forward-looking Sprint-2/3
+  stubs (`OnboardingStatus`, `CheckoutQuoteRequest/Response`, `CreateCheckoutSessionRequest/Response`)
+  so she can type against what's coming without waiting on it.
+- `lib/commerce/money.ts` — the one place the service-fee (3%, `SERVICE_FEE_RATE_BPS`) and platform
+  take rate (2%, `PLATFORM_TAKE_RATE_BPS`) are computed. `computeCheckoutBreakdown()` is the only
+  function that should ever produce a `MoneyBreakdown`.
+- `lib/stripe/client.ts` — lazy Stripe client via `getStripe()`.
+- `lib/commerce/db.ts` — lazy Drizzle/postgres-js client via `getDb()`.
+- `app/api/webhooks/stripe/route.ts` — verifies the Stripe signature, dedupes on `stripe_event_id`
+  into `webhook_events` (`onConflictDoNothing`), returns 200. No per-event-type handling yet —
+  that's Sprints 2–5, per the workplan.
+- `scripts/seed-commerce.ts` (`npm run db:seed`) — one test coach (`maya-test`, matching the
+  dashboard's "Maya Reyes" persona) with all three offer types and one test client.
+- `.env.example` — documents every env var these need (`DATABASE_URL`, `STRIPE_SECRET_KEY`,
+  `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `PLATFORM_TAKE_RATE_BPS`,
+  `SERVICE_FEE_RATE_BPS`). `.gitignore`'s blanket `.env*` rule now has a `!.env.example` exception.
+
+**Important gotcha hit and fixed**: `lib/stripe/client.ts` and `lib/commerce/db.ts` must construct
+their clients **lazily** (`getStripe()` / `getDb()`, not a top-level `const`). Next.js imports
+every route module at build time to collect its config, so a top-level `new Stripe(...)` or
+`postgres(...)` that throws when its env var is missing fails `next build` outright — even though
+the route is never invoked during the build. Keep this lazy pattern for any future commerce code.
+Similarly, the `server-only` package cannot be imported by `schema.ts` or `db.ts`: both are loaded
+directly by `drizzle-kit` and by `scripts/seed-commerce.ts` via `tsx`, neither of which goes
+through Next's bundler, so `server-only`'s guard trips immediately. Only add `server-only` to a
+commerce file if nothing outside Next's own build/dev server will ever import it.
+
+**Database**: Supabase project "Instar Fit" (org "Instar"). `postgres-js` is configured with
+`prepare: false` in `db.ts` because Supabase's transaction-mode pooler (PgBouncer) doesn't support
+prepared statements.
+
+**This Claude Code sandbox cannot reach Postgres at all — confirmed, not assumed.** Outbound
+network here only allows port 443 (HTTPS); a direct TCP test to the Supabase pooler's port 6543
+timed out while port 443 to the same host connected instantly. This holds regardless of which
+Supabase connection string is used (direct `db.*.supabase.co:5432` is also IPv6-only, a second,
+independent reason it fails here). **Do not spend time retrying connection-string variants** if a
+future session hits this again — go straight to the workaround below. It does not affect the
+deployed app: Vercel's servers aren't behind this restriction, so the webhook route connects fine
+once `DATABASE_URL` is set in the Vercel project's env vars.
+
+**Workaround in use**: generate the migration as normal (`npm run db:generate`), then instead of
+`npm run db:migrate`, compute the migration file's sha256 (`crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')`
+— this is exactly what `drizzle-orm`'s migrator does internally, see `node_modules/drizzle-orm/migrator.js`)
+and hand the user a combined SQL file: the migration's own SQL, plus
+`CREATE SCHEMA IF NOT EXISTS "drizzle"; CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);`
+plus an `INSERT` of that hash and the journal entry's `when` timestamp into that table. They paste
+it into Supabase's SQL Editor (browser, not this sandbox — works fine over 443). This keeps
+`drizzle-kit migrate`'s bookkeeping correct so a *future* migration, run from anywhere with real DB
+access, only applies what's actually new.
+
+**Mistake made and fixed once already**: the very first handoff put the
+`CREATE SCHEMA IF NOT EXISTS "drizzle"; CREATE TABLE IF NOT EXISTS ...` bookkeeping-table creation
+only in the *first* migration's file, on the assumption the user would always run files in order
+and each one would build on a database state where earlier files had already succeeded. That
+assumption broke in practice (got a `relation "drizzle.__drizzle_migrations" does not exist` error
+on the second file) — don't repeat it. **Every** hand-off file must independently include the
+`CREATE SCHEMA IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS` bookkeeping lines (harmless to repeat)
+and should guard its `INSERT` with `WHERE NOT EXISTS (SELECT 1 FROM ... WHERE hash = ...)` so it's
+safe to re-run if something upstream already partially succeeded. Treat each file as fully
+self-contained and idempotent — never assume a prior file in the sequence actually ran.
+
+Two migrations have gone out this way so far: `0000_special_hellfire_club.sql` (initial schema)
+and `0001_tiny_hobgoblin.sql` (RLS enablement, see `Decisions.md`).
+
+**Not done / needs the user**: migrations 0000 and 0001 were handed to the user to apply manually
+(see above) — confirm they've actually run them (and the corrected bookkeeping fix) before assuming
+the schema exists. `db:seed` has the same port-443-only problem and hasn't been run anywhere yet
+(needs either the user's machine, which has normal network access, or hand-written INSERT SQL the
+same way as the migrations). No Stripe test-mode keys are configured yet either. All of this is
+needed before Sprint 1's "done when" bar (Pari can hit mocked routes; webhooks log in test mode) is
+actually met, not just compiles.
+
+### Still open / next up
+
+- Pari's Sprint 1 (storefront skeleton at `/[coachHandle]`) hasn't started in this repo yet.
+- ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
+  a reason to prefer Prisma.
+- Database provider (Vercel Postgres vs Neon vs Supabase) not chosen yet.
 
 ### Working conventions to carry into any Commerce code
 
 - Money is always integer cents + ISO currency — never floats.
 - Webhook handlers are idempotent (dedupe on Stripe event ID, store in `webhook_events`).
-- Never compute prices or fees in the browser — the server/`/lib/commerce` is the only source; the
-  UI only displays what an API returns.
+- Never compute prices or fees in the browser — `lib/commerce/money.ts` (server-only) is the only
+  source; the UI only displays what an API returns.
 - `/lib/commerce/types.ts` is the one contract; flag any change to it rather than editing quietly.
 - Stripe test mode + test clocks only until the Sprint 6 "hardening & launch" milestone.
 - Branch naming: `feat/commerce-<short-name>` (Manvendra), `feat/storefront-<short-name>` (Pari).
+- Any Stripe client / DB client constructed at module scope must be lazy (see gotcha above).
