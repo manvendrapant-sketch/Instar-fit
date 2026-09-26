@@ -5,6 +5,27 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-26 — Fixed live signup/login 500s: TLS to Supabase, uncaught route errors
+
+Reported by Manvendra directly, hours after the merge/deploy above. Full detail in `CLAUDE.md`'s
+"Two real bugs found from that gap" — this entry is the "why" for the two calls made fixing it.
+
+**`ssl: 'require'` is now unconditional, not branched on the connection string.** `postgres-js`
+would silently accept an unencrypted connection to anything that allows one; the failure only
+shows up against something that doesn't, like Supabase. Rejected: making it conditional on
+detecting a Supabase host in `DATABASE_URL`, which would just recreate the exact bug this was for
+the next provider swap. Any Postgres worth using accepts an SSL connection, so there's no real
+downside to requiring it everywhere rather than special-casing one provider.
+
+**Route handlers now catch and log DB errors instead of letting them surface as bare framework
+500s.** The alternative — leaving it uncaught and relying on `get_runtime_logs` to diagnose it —
+turned out to not even be available to this session (403, permissions, see `CLAUDE.md`). Even
+where log access works, an uncaught 500 still ships a frontend that can't show the visitor
+anything. Catching at the route boundary and returning the same `apiError` envelope as every other
+failure path fixes both problems with one change, not two.
+
+---
+
 ## 2026-09-26 — Commerce/auth merged to `main`, pushed straight (no PR)
 
 Requested by Manvendra directly ("merge this into main and publish on vercel"). See `CLAUDE.md`'s

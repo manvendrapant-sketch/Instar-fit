@@ -270,12 +270,51 @@ via `get_deployment`.
 direct `curl` to `*.vercel.app` (organization policy, unrelated to the deployment itself — same
 kind of network restriction as the Postgres-pooler one elsewhere in this file, just a different
 host), and the Vercel MCP connector's own `web_fetch_vercel_url` also declined ("Vercel denied
-access... ask the user to update their Vercel connection"). So: the build succeeded, the env vars
-are correctly set, and the deployment is live and aliased — but nobody has actually exercised
-signup/login against the real production DB yet. Combined with migrations 0000-0002 being
-unconfirmed as applied (see "Not done / needs the user" above), **the next session (or Manvendra
-directly) should try creating a real account on the live site** before assuming this works, not
-just take the deployment's green checkmark at face value.
+access... ask the user to update their Vercel connection"). `get_runtime_logs`/`get_runtime_errors`
+also both 403 ("You don't have permission to access this resource") regardless of whether `teamId`
+is passed — this connector cannot read this project's logs from this session, full stop; don't
+keep retrying that path in a future session, ask the user to paste the Vercel dashboard's log
+output instead. So: the build succeeded, the env vars were set, the deployment was live and aliased
+— but nobody had actually exercised signup/login against the real production DB yet.
+
+### Two real bugs found from that gap, fixed same day
+
+Manvendra reported after trying the live site: **login with a non-existent account 500s, the
+button stays stuck in its loading state, and no error message shows** — and **signup also 500s**.
+Root-caused and fixed without needing the logs above:
+
+1. **`lib/commerce/db.ts` had no `ssl` option.** `postgres-js` defaults to `ssl: false`, and
+   `DATABASE_URL` has no `?sslmode=` query param to override that — but Supabase rejects
+   unencrypted external connections outright, on both the pooler and the direct port. Every DB
+   call was throwing before it ever reached SQL. Fixed: `ssl: 'require'`. This is almost certainly
+   the actual cause, independent of whatever migrations 0000-0002's status turns out to be —
+   nothing could have worked without this regardless.
+2. **Neither route caught its own DB errors.** An uncaught rejection inside a Route Handler's
+   async function becomes Next's bare framework 500 — no JSON body, no message, nothing the
+   frontend can parse or show. Both `app/api/auth/{login,signup}/route.ts` now wrap their DB work
+   in try/catch, log the real error server-side (`console.error`, so Vercel's own log capture gets
+   it even though this session's tools couldn't read it back), and return the normal `apiError`
+   envelope (`INTERNAL_ERROR`, 500) instead. Signup's existing insert-conflict catch was also
+   tightened to only treat a genuine Postgres unique-violation (`err.code === '23505'`) as the
+   409 "email/handle taken" case — anything else now correctly falls through to the same
+   `INTERNAL_ERROR` path rather than being misreported as a conflict.
+3. **The frontend's `postJson` (`lib/auth.ts`) could throw**, on a fetch failure or on `res.json()`
+   failing to parse a non-JSON response (exactly what bug 2 was producing). Since neither
+   `LoginForm` nor `SignupForm` caught that, the `setPending(false)` right after the `await` never
+   ran — this alone, independent of the two backend bugs, is what left the login button stuck with
+   no message. Fixed at the source (`postJson` now catches and returns a normal `{ success: false,
+   code: 'NETWORK_ERROR', ... }` result instead of throwing) and defensively in both forms
+   (`.finally(() => setPending(false))` instead of a bare sequential `setPending(false)` after the
+   `await`), so a similar bug introduced later in either layer alone can't reproduce this.
+
+All three shipped with tests in the same commit (the standing rule from "Testing (Jest)" above,
+not an exception to it) — see `lib/commerce/db.test.ts` (asserts `ssl: 'require'` is actually
+passed to `postgres()`), both routes' `route.test.ts` (DB-throws → 500, and the unique-violation
+`.code` distinction), and `lib/auth.test.ts` (non-JSON response, fetch rejection).
+
+**Still not independently confirmed**: whether migrations 0000-0002 are actually applied. The SSL
+fix alone may be the entire story, or the migrations gap may still bite once TLS stops masking it —
+this needs a real signup attempt against the live site to know for sure, same as before.
 
 ### Still open / next up
 

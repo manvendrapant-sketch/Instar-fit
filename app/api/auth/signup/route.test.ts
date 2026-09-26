@@ -18,20 +18,32 @@ function postRequest(body: unknown) {
   });
 }
 
+/** Shape postgres-js actually throws for a unique-index conflict (SQLSTATE 23505). */
+function uniqueViolation() {
+  return Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+}
+
 function mockDb({
   existingCoach,
+  findFirstThrows,
   insertedCoach,
   insertThrows,
+  insertRejectsWith,
 }: {
   existingCoach?: object;
+  findFirstThrows?: boolean;
   insertedCoach?: object;
   insertThrows?: boolean;
+  insertRejectsWith?: unknown;
 }) {
+  const findFirst = findFirstThrows
+    ? jest.fn().mockRejectedValue(new Error('connection terminated unexpectedly'))
+    : jest.fn().mockResolvedValue(existingCoach);
   const returning = insertThrows
-    ? jest.fn().mockRejectedValue(new Error('unique_violation'))
+    ? jest.fn().mockRejectedValue(insertRejectsWith ?? uniqueViolation())
     : jest.fn().mockResolvedValue([insertedCoach]);
   (getDb as jest.Mock).mockReturnValue({
-    query: { coaches: { findFirst: jest.fn().mockResolvedValue(existingCoach) } },
+    query: { coaches: { findFirst } },
     insert: jest.fn().mockReturnValue({ values: jest.fn().mockReturnValue({ returning }) }),
   });
 }
@@ -124,10 +136,28 @@ describe('POST /api/auth/signup', () => {
     });
   });
 
-  it('returns 409 EMAIL_OR_HANDLE_TAKEN if the insert itself fails (race with another signup)', async () => {
+  it('returns 409 EMAIL_OR_HANDLE_TAKEN if the insert hits a real unique-index conflict (race with another signup)', async () => {
     mockDb({ insertThrows: true });
     const res = await POST(postRequest(VALID_BODY));
     expect(res.status).toBe(409);
     await expect(res.json()).resolves.toMatchObject({ success: false, code: 'EMAIL_OR_HANDLE_TAKEN' });
+  });
+
+  it('returns 500 INTERNAL_ERROR (not 409) when the insert fails for a non-conflict reason', async () => {
+    mockDb({ insertThrows: true, insertRejectsWith: new Error('connection terminated unexpectedly') });
+    const res = await POST(postRequest(VALID_BODY));
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({ success: false, code: 'INTERNAL_ERROR' });
+  });
+
+  it('returns 500 INTERNAL_ERROR, not a bare uncaught error, when the DB is unreachable', async () => {
+    mockDb({ findFirstThrows: true });
+    const res = await POST(postRequest(VALID_BODY));
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      success: false,
+      code: 'INTERNAL_ERROR',
+      message: 'Something went wrong. Please try again.',
+    });
   });
 });

@@ -22,8 +22,7 @@ export function LoginForm() {
     if (hasErrors(next)) return;
 
     setPending(true);
-    const result = await login(values);
-    setPending(false);
+    const result = await login(values).finally(() => setPending(false));
 
     if (result.ok) {
       // refresh() after push forces the destination's server components (the (app) layout reads

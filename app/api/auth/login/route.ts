@@ -29,29 +29,36 @@ export async function POST(req: Request) {
   }
   const { email, password } = validation.value;
 
-  const db = getDb();
-  const coach = await db.query.coaches.findFirst({ where: (c, { eq }) => eq(c.email, email) });
-
   // Same message whether the email doesn't exist or the password is wrong — never reveal which.
   const invalidCredentials = () =>
     apiError('INVALID_CREDENTIALS', 'Incorrect email or password.', 401);
 
-  if (!coach) return invalidCredentials();
+  try {
+    const db = getDb();
+    const coach = await db.query.coaches.findFirst({ where: (c, { eq }) => eq(c.email, email) });
 
-  const passwordMatches = await verifyPassword(password, coach.passwordHash);
-  if (!passwordMatches) return invalidCredentials();
+    if (!coach) return invalidCredentials();
 
-  const token = await createSessionToken({
-    coachId: coach.id,
-    email: coach.email,
-    handle: coach.handle,
-    displayName: coach.displayName,
-  });
+    const passwordMatches = await verifyPassword(password, coach.passwordHash);
+    if (!passwordMatches) return invalidCredentials();
 
-  const response = apiSuccess<LoginResponseData>(
-    { coach: { id: coach.id, email: coach.email, handle: coach.handle, displayName: coach.displayName } },
-    'Logged in successfully.',
-  );
-  setSessionCookie(response.cookies, token);
-  return response;
+    const token = await createSessionToken({
+      coachId: coach.id,
+      email: coach.email,
+      handle: coach.handle,
+      displayName: coach.displayName,
+    });
+
+    const response = apiSuccess<LoginResponseData>(
+      { coach: { id: coach.id, email: coach.email, handle: coach.handle, displayName: coach.displayName } },
+      'Logged in successfully.',
+    );
+    setSessionCookie(response.cookies, token);
+    return response;
+  } catch (err) {
+    // A DB/config problem (bad connection, missing table, ...) must not surface as a bare,
+    // uncaught 500 — that leaves the frontend with no JSON to parse and no message to show.
+    console.error('POST /api/auth/login failed:', err);
+    return apiError('INTERNAL_ERROR', 'Something went wrong. Please try again.', 500);
+  }
 }
