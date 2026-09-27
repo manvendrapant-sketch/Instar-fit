@@ -190,6 +190,42 @@
   box-shadow: 0 0 0 1000px var(--chip) inset;
   caret-color: var(--text);
 }
+/* A native <select> ignores most styling by default (its own opaque, theme-blind popup chrome
+   included) — reset it to look like every other `.ins-input` field, with a chevron icon standing
+   in for the browser's own dropdown arrow (hidden via `appearance: none`). The popup listbox
+   itself still renders with OS/browser chrome outside our control — nothing in CSS can restyle
+   that part on every platform, only the closed control shown here. */
+.ins-input select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.ins-input select:focus-visible {
+  outline: none;
+}
+.ins-input select option {
+  /* Only reaches the popup on some browsers (e.g. Firefox); Chrome/Safari ignore it and use their
+     own OS-native listbox styling regardless — an unavoidable native-control limitation. */
+  background: var(--bg);
+  color: var(--text);
+}
+.ins-select-chev {
+  flex-shrink: 0;
+  color: var(--muted);
+  pointer-events: none;
+  /* `chev` points right by default (used for forward navigation elsewhere) — rotated here to read
+     as a dropdown's down-caret instead of introducing a second chevron icon variant. */
+  transform: rotate(90deg);
+}
 .ins-input-btn {
   width: 34px;
   height: 34px;

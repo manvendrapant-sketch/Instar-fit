@@ -82,6 +82,7 @@ function PauseForm({
               </option>
             ))}
           </select>
+          <Icon name="chev" className="ins-i ins-select-chev" />
         </span>
       </label>
       <label className="ins-field">
