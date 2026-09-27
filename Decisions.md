@@ -5,6 +5,21 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-27 — Stripe webhook endpoint registered, Sprint 3 closed out
+
+Manvendra asked to close off the one remaining gap in Sprint 3. This session's sandbox has no path
+to `api.stripe.com` (a direct request gets a 403 from the container's egress proxy — an
+organization policy, confirmed by testing, not a token/permission problem) and no Stripe MCP
+connector exists here, so unlike everything else in Sprint 3, **registering the endpoint itself
+could not be automated** — it was the one manual Dashboard step in this whole pillar so far that
+had no workaround. Manvendra registered it directly (endpoint `https://instar-fit.vercel.app
+/api/webhooks/stripe`, in the Instar Sandbox environment, subscribed to
+`checkout.session.completed`/`payment_intent.succeeded`/`invoice.paid`) and pasted back the signing
+secret; this session set `STRIPE_WEBHOOK_SECRET` in Vercel and redeployed. See `CLAUDE.md` for the
+mechanics. Nothing about the webhook handler code changed — this was pure configuration.
+
+---
+
 ## 2026-09-27 — Sprint 3 (Checkout backend), branch `feat/commerce-checkout`
 
 Picked as the next thing to build after reviewing `Workplan-Manvendra.md`'s remaining sprints
