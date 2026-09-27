@@ -889,3 +889,29 @@ Checkout Session fine, but nothing would write the `clients`/`subscriptions`/`pa
 afterward, since the webhook that does that never reaches this app. Registering that endpoint +
 secret is the next thing standing between "the routes exist" and "a payment actually lands in
 Postgres," which is Sprint 3's own done-when bar.
+
+### Webhook endpoint registered — Sprint 3 fully closed out (2026-09-27)
+
+Manvendra asked to close this off. This session's own sandbox still can't reach `api.stripe.com`
+directly (confirmed: a direct request to it gets a 403 from this container's egress proxy, same
+kind of organization-policy block as `*.vercel.app` elsewhere in this file) and there's no Stripe
+MCP connector available here, so registering the endpoint itself had to be a manual Dashboard step
+— unlike every other piece of this sprint, this one genuinely couldn't be done from inside the
+session.
+
+Manvendra registered `https://instar-fit.vercel.app/api/webhooks/stripe` in the **Instar Sandbox**
+Stripe environment (matching where `STRIPE_SECRET_KEY` already points — same environment-pairing
+rule as the Connect incident above: whichever Stripe environment the keys belong to is the one
+that needs the matching config), subscribed to `checkout.session.completed`,
+`payment_intent.succeeded`, and `invoice.paid`, and pasted the resulting signing secret. Set as
+`STRIPE_WEBHOOK_SECRET` in Vercel (production+preview+development) via the API, then redeployed the
+current production commit (`59a2ecc`) to pick it up — same bake-in-at-build-time gotcha as every
+other secret in this file.
+
+**Sprint 3's own "done when" bar** ("a card payment for each offer type lands in Postgres from
+webhooks alone") **is now actually reachable in production**, not just in tests — assuming
+migrations 0000-0004 are applied (confirmed earlier) and a coach has completed Stripe Connect
+onboarding (also confirmed working, per the live-Stripe incident above). Not yet independently
+verified with a real test-mode payment end to end — this session still can't exercise Stripe or
+Postgres directly; that verification needs someone with real network access to actually run a
+checkout and check the `payments` table.
