@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
+import { LoadingSection } from '@/components/LoadingSection';
 import { OfferCard } from '@/components/OfferCard';
 import { StorefrontPublish } from '@/components/StorefrontPublish';
 import {
@@ -34,6 +35,20 @@ import {
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
+}
+
+function StorefrontHero({ title, desc }: { title: string; desc: string }) {
+  return (
+    <section className="ins-space-hero ins-sf-hero">
+      <div>
+        <div className="ins-label ins-in" style={{ marginBottom: 18 }}>
+          Business · Storefront
+        </div>
+        <h1 className="ins-in d1">{title}</h1>
+        <p className="ins-in d2">{desc}</p>
+      </div>
+    </section>
+  );
 }
 
 export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft, 'handle' | 'displayName'> }) {
@@ -69,7 +84,14 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     setZones(list);
   }, []);
 
-  if (!hydrated) return null;
+  if (!hydrated) {
+    return (
+      <>
+        <StorefrontHero title="Your storefront" desc="This is what clients see when they open your link." />
+        <LoadingSection label="Loading your storefront…" />
+      </>
+    );
+  }
 
   // `hydrated` only means the load attempt finished — `storefront` staying null means
   // GET /api/coach/profile itself failed (auth hiccup, transient DB error, ...). Show that
@@ -77,13 +99,16 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
   // is broken.
   if (!storefront) {
     return (
-      <section className="ins-panel ins-offers-missing ins-in" aria-live="polite">
-        <h2>Couldn’t load your storefront</h2>
-        <p>Something went wrong loading your profile. Check your connection and try again.</p>
-        <button type="button" className="ins-btn go" onClick={() => refreshStorefront()}>
-          Try again
-        </button>
-      </section>
+      <>
+        <StorefrontHero title="Your storefront" desc="This is what clients see when they open your link." />
+        <section className="ins-panel ins-offers-missing ins-in" aria-live="polite">
+          <h2>Couldn’t load your storefront</h2>
+          <p>Something went wrong loading your profile. Check your connection and try again.</p>
+          <button type="button" className="ins-btn go" onClick={() => refreshStorefront()}>
+            Try again
+          </button>
+        </section>
+      </>
     );
   }
 
@@ -160,19 +185,14 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
 
   return (
     <>
-      <section className="ins-space-hero ins-sf-hero">
-        <div>
-          <div className="ins-label ins-in" style={{ marginBottom: 18 }}>
-            Business · Storefront
-          </div>
-          <h1 className="ins-in d1">{showForm && !storefront ? 'Create your storefront' : 'Your storefront'}</h1>
-          <p className="ins-in d2">
-            {showForm && !storefront
-              ? 'One link for your Instagram bio. Clients see who you are, pick an offer and pay you, all on their phone.'
-              : 'This is what clients see when they open your link.'}
-          </p>
-        </div>
-      </section>
+      <StorefrontHero
+        title={!storefront.completed ? 'Create your storefront' : 'Your storefront'}
+        desc={
+          !storefront.completed
+            ? 'One link for your Instagram bio. Clients see who you are, pick an offer and pay you, all on their phone.'
+            : 'This is what clients see when they open your link.'
+        }
+      />
 
       <div className="ins-sf-grid">
         {showForm ? (

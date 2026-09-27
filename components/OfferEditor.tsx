@@ -7,6 +7,7 @@ import type { OfferType } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
+import { LoadingSection } from '@/components/LoadingSection';
 import { OfferCard } from '@/components/OfferCard';
 import {
   blankOffer,
@@ -37,6 +38,20 @@ const INTERVAL_LABEL = { week: 'Every week', month: 'Every month', year: 'Every 
 
 function newId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `offer-${Date.now().toString(36)}`;
+}
+
+function OfferEditorHero({ mode }: { mode: 'new' | 'edit' }) {
+  return (
+    <section className="ins-space-hero ins-sf-hero">
+      <div>
+        <Link href={OFFERS_PATH} className="ins-label ins-offers-back ins-in">
+          ← Offers
+        </Link>
+        <h1 className="ins-in d1">{mode === 'new' ? 'New offer' : 'Edit offer'}</h1>
+        <p className="ins-in d2">Set what you sell and what it costs. Clients see it on your storefront exactly as previewed.</p>
+      </div>
+    </section>
+  );
 }
 
 type Props = { mode: 'new'; initialType: OfferType } | { mode: 'edit'; id: string };
@@ -70,16 +85,26 @@ export function OfferEditor(props: Props) {
 
   if (props.mode === 'edit' && hydrated && !existing) {
     return (
-      <section className="ins-panel ins-offers-missing ins-in">
-        <h2>This offer doesn’t exist anymore</h2>
-        <p>It may have been deleted.</p>
-        <Link href={OFFERS_PATH} className="ins-btn go">
-          Back to offers
-        </Link>
-      </section>
+      <>
+        <OfferEditorHero mode={props.mode} />
+        <section className="ins-panel ins-offers-missing ins-in">
+          <h2>This offer doesn’t exist anymore</h2>
+          <p>It may have been deleted.</p>
+          <Link href={OFFERS_PATH} className="ins-btn go">
+            Back to offers
+          </Link>
+        </section>
+      </>
     );
   }
-  if (!loaded) return null;
+  if (!loaded) {
+    return (
+      <>
+        <OfferEditorHero mode={props.mode} />
+        <LoadingSection label="Loading your offer…" />
+      </>
+    );
+  }
 
   function onPrice(v: string) {
     setPriceInput(v);
@@ -137,15 +162,7 @@ export function OfferEditor(props: Props) {
 
   return (
     <>
-      <section className="ins-space-hero ins-sf-hero">
-        <div>
-          <Link href={OFFERS_PATH} className="ins-label ins-offers-back ins-in">
-            ← Offers
-          </Link>
-          <h1 className="ins-in d1">{props.mode === 'new' ? 'New offer' : 'Edit offer'}</h1>
-          <p className="ins-in d2">Set what you sell and what it costs. Clients see it on your storefront exactly as previewed.</p>
-        </div>
-      </section>
+      <OfferEditorHero mode={props.mode} />
 
       <div className="ins-sf-grid">
         <form className="ins-panel ins-sf-form ins-in d2" onSubmit={onSubmit} noValidate aria-label="Offer details">

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { OfferType } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
+import { LoadingSection } from '@/components/LoadingSection';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { formatOfferPrice, moveOffer, OFFER_TYPES, OFFERS_PATH, reorderOffersApi, updateOfferApi } from '@/lib/offers';
@@ -81,7 +82,9 @@ export function OffersList() {
         </p>
       )}
 
-      {!hydrated ? null : offers.length === 0 ? (
+      {!hydrated ? (
+        <LoadingSection label="Loading your offers…" />
+      ) : offers.length === 0 ? (
         <section className="ins-panel ins-offers-empty ins-in d2" aria-labelledby="empty-title">
           <span className="ins-sf-prompt-icon lg" aria-hidden="true">
             <Icon name="offers" />

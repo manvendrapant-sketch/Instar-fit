@@ -634,3 +634,35 @@
     transform: none;
   }
 }
+
+/* Shared loading spinner + section — anywhere a page/panel is waiting on its first server fetch,
+   so it reads as "loading" rather than as a blank flash that looks like the app broke. */
+.ins-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  animation: ins-spin 0.8s linear infinite;
+}
+@keyframes ins-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ins-spinner {
+    animation-duration: 2.4s;
+  }
+}
+.ins-loading-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}

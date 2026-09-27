@@ -971,3 +971,61 @@ tests)/`npm run build` all clean.
 "My subscription" self-serve, pause flow, dunning) — deliberately sequenced after these two Sprint 3
 gaps, since Sprint 4's own subscription-management screens need a completed checkout to have
 anything real to manage. Recommended as the next piece of work; not started.
+
+### Three UX bugs fixed: autofill styling, missing loading states (2026-09-27)
+
+Manvendra asked three things in one message: (1) whether test-mode checkouts send receipt emails
+at all, (2) autofilled fields (e.g. email/password on login) showing a stark white background that
+breaks dark mode, and (3) several pages rendering blank for a moment while their first data fetch
+is in flight, reading as "the app crashed" rather than "loading."
+
+**(1) is not a code question** — answered directly, not fixed: whether Stripe sends a receipt for
+a test-mode payment depends entirely on the "Email customers about successful payments" toggle
+under the Stripe Dashboard's Customer emails settings, for whichever environment the coach is
+testing in (the Instar Sandbox, per the webhook/keys pairing noted above). This app never sends its
+own receipt email — see the checkout-outcome-page entry above ("the workplan's 'receipt email copy'
+is Stripe's own automatic receipt email, not something this page needs to duplicate"). Nothing to
+check or flip from inside this session (Dashboard-only setting, and this sandbox has no reliable
+path to Stripe's API to read it back either).
+
+**(2) Autofill styling**: Chrome/Safari paint an autofilled `<input>` with their own opaque
+background (ignoring the page's dark theme) via `-webkit-autofill` UA styles that a plain
+`background` override can't beat. Fixed in `app/styles/auth.css` with the standard workaround —
+a `box-shadow: 0 0 0 1000px var(--chip) inset` (fills the same area a background-color would,
+since a real background-color loses to the UA style) plus `-webkit-text-fill-color` for the text
+color and a long `transition-delay` to stop the yellow/white flash Chrome animates in the instant
+autofill fires. Applied once to the shared `.ins-input input` selector — every text/password/email
+field in the app (login, signup, offer builder, storefront creator, the checkout dialog, ...) uses
+this same markup, so this one fix covers all of them. Not verified in a real browser's actual
+autofill (this sandbox's headless Chromium has no saved credentials to trigger genuine autofill,
+and scripting `.value` doesn't engage the `:-webkit-autofill` pseudo-class) — this is the
+well-established, ubiquitous fix for this exact symptom, but worth a real visual check on a device
+with saved credentials.
+
+**(3) Missing loading states**: audited every `if (!hydrated) return null` / equivalent blank
+early-return gating on `AppStateProvider`'s first-load flag, found five real spots where a whole
+page (including its otherwise-static title) went blank for the ~second or so those fetches take:
+`OffersList`, `PayoutsPage`, `StorefrontCreator`, `OfferEditor` (edit mode's separate `!loaded`
+gate, waiting on the offers list to hydrate before it can find the one being edited), and
+`OwnerPreview` (rendered an empty `<main aria-busy>` — technically not `null`, but visually
+identical to one). Added a shared `components/LoadingSection.tsx` (spinner + label, `.ins-panel`)
+and a shared `.ins-spinner` class in `components.css` — deduped from what was a payouts-page-only
+`.ins-po-spinner`/`@keyframes ins-spin` pair in `payouts.css` (`PayoutsReturn.tsx` already had a
+working spinner for its "Checking with Stripe…" screen; generalized rather than left
+payouts-specific). Each of the five spots now keeps its hero/title rendering immediately
+(unconditionally, extracted into a small local hero helper per file where the hero previously lived
+inside the same early-return-guarded block) and swaps only the data-dependent body for
+`<LoadingSection label="..." />` while loading.
+
+**Incidental fix found while touching `StorefrontCreator`'s hero**: its title/description ternary
+checked `showForm && !storefront`, but by the point that JSX runs, `storefront` is always non-null
+(an earlier guard already returns early if it's null) — so the condition was dead code, always
+false, meaning a first-time coach never actually saw the "Create your storefront" heading/copy,
+only ever "Your storefront." Fixed to check `!storefront.completed` (the field the condition was
+clearly meant to test, matching `showForm`'s own definition just above it).
+
+Verified in a real dev server (Playwright, hand-crafted signed session cookie — same technique as
+prior sessions — with `/api/offers`, `/api/coach/profile`, `/api/coach/onboarding-status`, and
+`/api/storefront` all mocked with an artificial 2s delay so the loading state has time to render):
+screenshots confirm all five spots now show their title immediately plus a spinner and label
+instead of a blank gap. `tsc`/`eslint`/`npm test` (39 suites, 343 tests)/`npm run build` all clean.

@@ -39,7 +39,7 @@ export function PayoutsReturn() {
 
   return (
     <section className="ins-po-checking" role="status" aria-live="polite">
-      <span className="ins-po-spinner" aria-hidden="true" />
+      <span className="ins-spinner" aria-hidden="true" />
       <h1>Checking with Stripe…</h1>
       <p>One moment while we see where your payouts stand.</p>
     </section>

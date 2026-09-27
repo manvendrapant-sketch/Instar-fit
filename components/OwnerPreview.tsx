@@ -2,6 +2,7 @@
 
 import { useAppState } from '@/lib/store';
 import { toPreviewProfile } from '@/lib/publicStorefront';
+import { LoadingSection } from '@/components/LoadingSection';
 import { PublicStorefrontView, PublicUnavailable } from '@/components/PublicStorefrontView';
 
 /**
@@ -10,7 +11,13 @@ import { PublicStorefrontView, PublicUnavailable } from '@/components/PublicStor
  */
 export function OwnerPreview() {
   const { storefront, offers, hydrated } = useAppState();
-  if (!hydrated) return <main className="ins-pub" aria-busy="true" />;
+  if (!hydrated) {
+    return (
+      <main className="ins-pub">
+        <LoadingSection label="Loading your preview…" />
+      </main>
+    );
+  }
   if (!storefront) return <PublicUnavailable handle="" reason="error" />;
   return <PublicStorefrontView profile={toPreviewProfile(storefront, offers)} banner="owner-preview" />;
 }

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ConnectStatus } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
+import { LoadingSection } from '@/components/LoadingSection';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
@@ -22,9 +23,30 @@ const YOU_NEED = [
   'A photo ID, if Stripe can’t verify you from the above',
 ];
 
+function PayoutsHero() {
+  return (
+    <section className="ins-space-hero ins-sf-hero">
+      <div>
+        <div className="ins-label ins-in" style={{ marginBottom: 18 }}>
+          Business · Payouts
+        </div>
+        <h1 className="ins-in d1">Payouts</h1>
+        <p className="ins-in d2">How client payments reach your bank. Instar uses Stripe, so your bank and ID details stay with them.</p>
+      </div>
+    </section>
+  );
+}
+
 export function PayoutsPage() {
   const { payouts, hydrated, storefront, offers, toast } = useAppState();
-  if (!hydrated) return null;
+  if (!hydrated) {
+    return (
+      <>
+        <PayoutsHero />
+        <LoadingSection label="Loading your payouts…" />
+      </>
+    );
+  }
 
   const { status } = payouts;
   const copy = STATUS_COPY[status];
@@ -34,15 +56,7 @@ export function PayoutsPage() {
 
   return (
     <>
-      <section className="ins-space-hero ins-sf-hero">
-        <div>
-          <div className="ins-label ins-in" style={{ marginBottom: 18 }}>
-            Business · Payouts
-          </div>
-          <h1 className="ins-in d1">Payouts</h1>
-          <p className="ins-in d2">How client payments reach your bank. Instar uses Stripe, so your bank and ID details stay with them.</p>
-        </div>
-      </section>
+      <PayoutsHero />
 
       <div className="ins-sf-grid">
         <div className="ins-po-main">

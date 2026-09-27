@@ -170,6 +170,26 @@
   color: var(--muted);
   opacity: 0.7;
 }
+/* Chrome/Safari paint an autofilled input with their own opaque background (white, ignoring
+   dark mode) via UA styles that a plain `background` override can't beat — this box-shadow
+   inset is the standard workaround, filling the same area a background-color would. The long
+   transition delay stops the yellow/white flash those browsers otherwise animate in the moment
+   autofill kicks in. */
+.ins-input input:-webkit-autofill,
+.ins-input input:-webkit-autofill:hover,
+.ins-input input:-webkit-autofill:focus,
+.ins-input input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--chip) inset;
+  box-shadow: 0 0 0 1000px var(--chip) inset;
+  caret-color: var(--text);
+  transition: background-color 5000s ease-in-out 0s;
+}
+.ins-input input:autofill {
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 1000px var(--chip) inset;
+  caret-color: var(--text);
+}
 .ins-input-btn {
   width: 34px;
   height: 34px;
