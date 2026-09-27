@@ -1,6 +1,6 @@
 import { getDb } from '@/lib/commerce/db';
 import { clientLoginTokens } from '@/lib/commerce/schema';
-import { generateLoginToken, hashLoginToken } from '@/lib/auth/clientToken';
+import { generateLoginToken, hashLoginToken, LOGIN_TOKEN_TTL_MS } from '@/lib/auth/clientToken';
 import { sendMagicLinkEmail } from '@/lib/email/send';
 import type { ClientLoginRequest } from '@/lib/commerce/types';
 import { apiError, apiSuccess } from '@/lib/api/response';
@@ -8,7 +8,6 @@ import { apiError, apiSuccess } from '@/lib/api/response';
 export const runtime = 'nodejs';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * Requests a fresh login link — never a standing reusable one. Always responds with the same
@@ -50,7 +49,7 @@ export async function POST(req: Request) {
     await db.insert(clientLoginTokens).values({
       clientId: client.id,
       tokenHash: hashLoginToken(rawToken),
-      expiresAt: new Date(Date.now() + TOKEN_TTL_MS),
+      expiresAt: new Date(Date.now() + LOGIN_TOKEN_TTL_MS),
     });
 
     const origin = new URL(req.url).origin;

@@ -93,7 +93,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ received: true });
     expect(insertValues).toHaveBeenCalledWith({ stripeEventId: 'evt_123', type: 'account.updated', payload: FAKE_EVENT });
-    expect(dispatchWebhookEvent).toHaveBeenCalledWith(expect.anything(), FAKE_EVENT);
+    expect(dispatchWebhookEvent).toHaveBeenCalledWith(expect.anything(), FAKE_EVENT, 'http://localhost');
     expect(updateSet).toHaveBeenCalledWith({ processedAt: expect.any(Date) });
     expect(updateWhere).toHaveBeenCalled();
   });

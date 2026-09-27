@@ -211,3 +211,59 @@ export interface ClientMeResponse {
   client: { email: string; name: string | null };
   coach: { handle: string; displayName: string };
 }
+
+/**
+ * Sprint 4 — recurring billing, dunning, pause. Mirrors schema.ts's `subscription_status` enum;
+ * kept as its own string union here (not imported from the DB schema) since this file has no
+ * runtime dependency on the database — see the file header.
+ */
+export type SubscriptionStatus = 'incomplete' | 'trialing' | 'active' | 'past_due' | 'paused' | 'canceled';
+
+export type PauseReason = 'vacation' | 'injury' | 'other';
+
+/** One row in GET /api/client/subscriptions. */
+export interface ClientSubscriptionSummary {
+  id: string;
+  offerName: string;
+  price: OfferPrice;
+  status: SubscriptionStatus;
+  /** ISO timestamp, or null if unknown (e.g. before the first invoice). */
+  currentPeriodEnd: string | null;
+  /** Set only while `status === 'paused'`. */
+  pauseResumesAt: string | null;
+  pauseReason: PauseReason | null;
+}
+
+export interface ClientSubscriptionsResponse {
+  subscriptions: ClientSubscriptionSummary[];
+}
+
+/** POST /api/client/subscriptions/[id]/pause request body. */
+export interface PauseSubscriptionRequest {
+  reason: PauseReason;
+  /** ISO date (yyyy-mm-dd) — must be in the future. Billing resumes automatically on this date. */
+  resumeDate: string;
+}
+
+/** POST /api/client/portal — a Stripe Customer Portal session for updating the payment method. */
+export interface ClientPortalResponse {
+  url: string;
+}
+
+/** One row in GET /api/coach/clients — one per subscription, not per client (a client with two
+ * subscriptions to the same coach appears twice, once per subscription). */
+export interface CoachClientSummary {
+  clientId: string;
+  clientEmail: string;
+  clientName: string | null;
+  subscriptionId: string;
+  offerName: string;
+  status: SubscriptionStatus;
+  currentPeriodEnd: string | null;
+  pauseResumesAt: string | null;
+  pauseReason: PauseReason | null;
+}
+
+export interface CoachClientsResponse {
+  clients: CoachClientSummary[];
+}

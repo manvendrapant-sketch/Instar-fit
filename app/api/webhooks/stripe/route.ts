@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await dispatchWebhookEvent(db, event);
+    await dispatchWebhookEvent(db, event, new URL(req.url).origin);
   } catch (err) {
     console.error(`Webhook handler failed for ${event.type} (${event.id}):`, err);
     return NextResponse.json({ error: 'Handler failed' }, { status: 500 });

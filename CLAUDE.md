@@ -1125,3 +1125,100 @@ Resend account's own registered address will see "check your email" and then not
 with no visible error anywhere. **Verifying a sending domain in Resend is a hard requirement before
 any client other than the account owner can use this flow** — not an optional polish step. Not done
 yet; Manvendra hasn't picked a sending domain.
+
+## Sprint 4 completed for both workplans (2026-09-27) — recurring billing, dunning, pause, client self-serve
+
+Manvendra re-shared both `Workplan-Manvendra.md` and `Workplan-Pari.md` in full and asked for an
+honest check of what Sprint 4 actually had done — the answer was "only the magic-link login above,
+nothing else" — then asked to complete Sprint 4 for **both** workplans in one pass. See
+`Decisions.md`'s "Sprint 4 completed for both workplans" entry for the full design rationale (the
+Stripe `pause_collection`-vs-`status` quirk in particular — read that before touching any of this
+code again). No schema change was needed: Sprint 1's `subscriptions` table already had everything
+(`status` enum including `paused`/`past_due`/`canceled`, `pauseResumesAt`, `pauseReason`).
+
+**`lib/commerce/subscriptions.ts`** (new) — the shared, DB-aware module both the webhook handler
+and the client-facing routes use: `mapSubscriptionStatus` (moved here from `webhookHandlers.ts`,
+now exported so it isn't duplicated), `subscriptionSyncFields` (the one place a Stripe Subscription
+object becomes our own row's fields — see the pause_collection quirk above), `toClientSubscriptionSummary`/
+`toCoachClientSummary` (row → API shape mappers), `findOwnClientSubscription` (ownership-scoped
+lookup, mirrors `findOwnOffer`), and `validatePauseInput` (reason must be vacation/injury/other,
+resume date must be a real future yyyy-mm-dd within a year).
+
+**Webhook handlers** (`lib/commerce/webhookHandlers.ts`) — `dispatchWebhookEvent` gained an `origin`
+parameter (needed to build the dunning email's login link; the route now passes
+`new URL(req.url).origin`) and five new routed event types:
+- `invoice.payment_failed` / `invoice.payment_action_required` -> `handleInvoicePaymentFailed`/
+  `handleInvoicePaymentActionRequired`, both thin wrappers around a shared `sendDunningNudge` that
+  mints a fresh login token (reusing `client_login_tokens`, `generateLoginToken`/`hashLoginToken`
+  from `lib/auth/clientToken.ts`, whose `LOGIN_TOKEN_TTL_MS` is now a named export instead of a
+  private constant duplicated in the login-request route) and calls the new `sendDunningEmail`
+  (`lib/email/send.ts`). Neither handler writes `subscriptions.status` itself — see Decisions.md for
+  why. Wrapped in try/catch so an email-provider hiccup never fails the webhook delivery.
+- `customer.subscription.updated`/`.deleted`/`.paused`/`.resumed` -> all four routed to one shared
+  `handleSubscriptionSynced`, which now just calls `subscriptionSyncFields` and writes the result.
+
+**Client-facing routes** (all under `requireClientSession()`, mirroring the coach-side auth
+pattern):
+- `GET /api/client/subscriptions` — the "My subscription" page's data, one row per subscription.
+- `POST /api/client/subscriptions/[id]/pause` — body `{ reason, resumeDate }`; calls
+  `stripe.subscriptions.update(id, { pause_collection: { behavior: 'void', resumes_at } })`, then
+  syncs the DB row from the response via `subscriptionSyncFields` (passing the request's `reason`
+  as the "existing" pause reason, since it's always freshly set right after this call).
+- `POST /api/client/subscriptions/[id]/resume` — manual early resume (Pari's workplan literally
+  says "resume" as a self-serve action separate from waiting for the scheduled date). Clears
+  `pause_collection` with the empty-string `Emptyable` convention Stripe's SDK types define.
+- `POST /api/client/subscriptions/[id]/cancel` — immediate cancel via `stripe.subscriptions.cancel`
+  (see Decisions.md for why immediate, not at-period-end).
+- `POST /api/client/portal` — creates a Stripe Customer Portal session for the signed-in client's
+  own `stripeCustomerId`, return URL `/<coachHandle>/account`. **Needs a Customer Portal
+  Configuration in the Stripe Dashboard (Settings -> Billing -> Customer portal) before this
+  succeeds in production** — a Dashboard-only step, not something any future session can do or
+  verify from code; flag it to whoever owns the Stripe account if this 500s in practice.
+
+**Coach-facing route + page**: `GET /api/coach/clients` (one row per subscription, joined
+`subscriptions` + `clients` + `offers`, scoped to `session.coachId`) backs a new
+`lib/data.ts` business-space tile (`id: 'subscribers'`, title "Clients" — `subscribers` to avoid
+colliding with the existing top-level `clients` space id) and a real `/business/clients` route
+(`components/ClientsPage.tsx`, own fetch-on-mount + loading/error/empty states, not wired into the
+shared `AppStateProvider` since nothing else needs this data — a deliberate "don't widen an
+already-complex context for a single page" call). `components/Sidebar.tsx` gained a `subscribers`
+special case (real `<Link>` to `/business/clients`, `roster` icon) alongside the existing
+payouts/offers/storefront ones.
+
+**Client account page rewritten** (`components/ClientAccountView.tsx`) — replaces the "proves the
+loop works, nothing else built yet" stub from the magic-link-login pass with the real thing: one
+card per subscription (plan, price, status chip), a past-due banner ("your last payment didn't go
+through... Update your card"), "Update card" (redirects to the Customer Portal), "Pause" (inline
+form: reason select + date input, same field-error pattern as every other form in this app),
+"Resume now" while paused, and "Cancel" behind the same click-to-reveal inline confirm pattern
+`OfferEditor`'s delete button already uses (`.ins-offer-confirm`/`.ins-btn-bad`, reused verbatim
+rather than inventing a second confirm UI). New frontend module `lib/clientSubscriptions.ts`
+(fetch wrappers + `formatSubscriptionPrice`), new styles in `app/styles/clients.css` (shared with
+the coach-side clients table above — both are "client billing" concerns).
+
+**Verified**: `tsc --noEmit`, `eslint .`, `npm test` (58 suites, 460 tests), `npm run build` (with
+`DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` unset) all clean. Playwright, real dev server,
+same "temporary unlinked preview page + mocked fetch routes" technique as the checkout-dialog pass
+(built at `app/(public)/preview-account-test/`, deleted before finishing — **note for a future
+session**: a folder name starting with `_` is a Next.js "private folder" excluded from routing
+entirely, which silently fell through to the `[handle]` dynamic route on the first attempt; use a
+plain segment name for any future throwaway preview route, not `__anything`). Confirmed: every
+subscription-card state (active, past_due with banner, paused, canceled), the pause form's
+inline validation and full submit-to-paused flow, resume, the cancel confirm-then-cancel flow,
+update-card's redirect, and the loading/error/empty states — all screenshotted. Also confirmed the
+coach-side `/business/clients` table (one row per subscription, correct status chips/dates) and the
+Sidebar's new "Clients" entry (icon, active-state highlight) with a hand-crafted signed coach
+session cookie, same technique as every earlier coach-dashboard verification in this file.
+
+**Not done / deliberately out of scope**:
+- No live-Stripe or live-DB verification (same standing gap as every pass in this file — this
+  sandbox reaches neither Postgres nor Stripe's API directly).
+- Stripe Smart Retries and the Customer Portal Configuration are both Dashboard-only steps this
+  session cannot perform or confirm — flag to Manvendra before relying on either in production.
+- No component-rendering tests for `ClientAccountView`/`ClientsPage`/the inline `PauseForm`/
+  `SubscriptionCard` — consistent with every other component in this repo (see "Testing (Jest)"
+  above); the underlying `lib/` modules (`subscriptions.ts`, `clientSubscriptions.ts`,
+  `coachClients.ts`) all have full test coverage.
+- Reconciling an offer's orphaned Stripe product/price across a `STRIPE_SECRET_KEY` rotation
+  (flagged in the earlier "offer edit" bug fix) remains unhandled — unrelated to this pass, not
+  reintroduced by it.

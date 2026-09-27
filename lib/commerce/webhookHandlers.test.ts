@@ -2,23 +2,34 @@ import {
   dispatchWebhookEvent,
   handleCheckoutSessionCompleted,
   handleInvoicePaid,
+  handleInvoicePaymentActionRequired,
+  handleInvoicePaymentFailed,
   handlePaymentIntentSucceeded,
+  handleSubscriptionSynced,
 } from './webhookHandlers';
 import { upsertClient } from './clients';
 import { getStripe } from '@/lib/stripe/client';
+import { generateLoginToken, hashLoginToken } from '@/lib/auth/clientToken';
+import { sendDunningEmail } from '@/lib/email/send';
 
 jest.mock('./clients');
 jest.mock('@/lib/stripe/client');
+jest.mock('@/lib/auth/clientToken');
+jest.mock('@/lib/email/send');
 
 function mockDb(opts: {
   subscriptionFindFirst?: unknown;
   priceFindFirst?: unknown;
   clientFindFirst?: unknown;
+  offerFindFirst?: unknown;
+  coachFindFirst?: unknown;
   insertReturning?: unknown[];
 }) {
   const subFindFirst = jest.fn().mockResolvedValue(opts.subscriptionFindFirst ?? null);
   const priceFindFirst = jest.fn().mockResolvedValue(opts.priceFindFirst ?? null);
   const clientFindFirst = jest.fn().mockResolvedValue(opts.clientFindFirst ?? null);
+  const offerFindFirst = jest.fn().mockResolvedValue(opts.offerFindFirst ?? null);
+  const coachFindFirst = jest.fn().mockResolvedValue(opts.coachFindFirst ?? null);
 
   const onConflictDoNothing = jest.fn().mockReturnValue(Promise.resolve(opts.insertReturning ?? []));
   const insertValues = jest.fn().mockReturnValue({ onConflictDoNothing });
@@ -33,11 +44,13 @@ function mockDb(opts: {
       subscriptions: { findFirst: subFindFirst },
       prices: { findFirst: priceFindFirst },
       clients: { findFirst: clientFindFirst },
+      offers: { findFirst: offerFindFirst },
+      coaches: { findFirst: coachFindFirst },
     },
     insert,
     update,
   };
-  return { db, insert, insertValues, update, updateSet };
+  return { db, insert, insertValues, update, updateSet, updateWhere };
 }
 
 beforeEach(() => jest.clearAllMocks());
@@ -229,20 +242,204 @@ describe('handleInvoicePaid', () => {
   });
 });
 
+describe('handleInvoicePaymentFailed / handleInvoicePaymentActionRequired', () => {
+  const invoiceBase = {
+    id: 'in_1',
+    parent: { subscription_details: { subscription: 'sub_1' } },
+  };
+
+  it('skips a non-subscription invoice without sending anything', async () => {
+    const { db } = mockDb({});
+    await handleInvoicePaymentFailed(db as never, { id: 'in_1', parent: null } as never, 'https://instar-fit.vercel.app');
+    expect(sendDunningEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips when no subscriptions row exists yet', async () => {
+    const { db } = mockDb({ subscriptionFindFirst: null });
+    await handleInvoicePaymentFailed(db as never, invoiceBase as never, 'https://instar-fit.vercel.app');
+    expect(sendDunningEmail).not.toHaveBeenCalled();
+  });
+
+  it('mints a fresh login token and emails a "failed" dunning nudge', async () => {
+    const { db, insertValues } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1' },
+      clientFindFirst: { id: 'client-1', email: 'a@b.com', coachId: 'coach-1' },
+      offerFindFirst: { id: 'offer-1', name: 'Monthly Coaching' },
+      coachFindFirst: { id: 'coach-1', displayName: 'Maya Reyes' },
+    });
+    (generateLoginToken as jest.Mock).mockReturnValue('raw-token');
+    (hashLoginToken as jest.Mock).mockReturnValue('hashed-token');
+
+    await handleInvoicePaymentFailed(db as never, invoiceBase as never, 'https://instar-fit.vercel.app');
+
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: 'client-1', tokenHash: 'hashed-token' }),
+    );
+    expect(sendDunningEmail).toHaveBeenCalledWith(
+      'a@b.com',
+      'https://instar-fit.vercel.app/api/client/login/verify?token=raw-token',
+      'Maya Reyes',
+      'Monthly Coaching',
+      'failed',
+    );
+  });
+
+  it('emails an "action_required" dunning nudge', async () => {
+    const { db } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1' },
+      clientFindFirst: { id: 'client-1', email: 'a@b.com', coachId: 'coach-1' },
+      offerFindFirst: { id: 'offer-1', name: 'Monthly Coaching' },
+      coachFindFirst: { id: 'coach-1', displayName: 'Maya Reyes' },
+    });
+    (generateLoginToken as jest.Mock).mockReturnValue('raw-token');
+    (hashLoginToken as jest.Mock).mockReturnValue('hashed-token');
+
+    await handleInvoicePaymentActionRequired(db as never, invoiceBase as never, 'https://instar-fit.vercel.app');
+
+    expect(sendDunningEmail).toHaveBeenCalledWith(
+      'a@b.com',
+      expect.any(String),
+      'Maya Reyes',
+      'Monthly Coaching',
+      'action_required',
+    );
+  });
+
+  it('swallows a send failure rather than throwing (so the webhook delivery does not 500/retry)', async () => {
+    const { db } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1' },
+      clientFindFirst: { id: 'client-1', email: 'a@b.com', coachId: 'coach-1' },
+      coachFindFirst: { id: 'coach-1', displayName: 'Maya Reyes' },
+    });
+    (generateLoginToken as jest.Mock).mockReturnValue('raw-token');
+    (hashLoginToken as jest.Mock).mockReturnValue('hashed-token');
+    (sendDunningEmail as jest.Mock).mockRejectedValue(new Error('resend down'));
+
+    await expect(
+      handleInvoicePaymentFailed(db as never, invoiceBase as never, 'https://instar-fit.vercel.app'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('handleSubscriptionSynced', () => {
+  it('skips when no subscriptions row exists yet', async () => {
+    const { db, update } = mockDb({ subscriptionFindFirst: null });
+    await handleSubscriptionSynced(db as never, { id: 'sub_1', status: 'active', items: { data: [] } } as never);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('syncs status and current_period_end', async () => {
+    const { db, updateSet } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', pauseReason: null },
+    });
+
+    await handleSubscriptionSynced(db as never, {
+      id: 'sub_1',
+      status: 'past_due',
+      items: { data: [{ current_period_end: 1700000000 }] },
+      pause_collection: null,
+    } as never);
+
+    expect(updateSet).toHaveBeenCalledWith({
+      status: 'past_due',
+      currentPeriodEnd: new Date(1700000000 * 1000),
+      pauseResumesAt: null,
+      pauseReason: null,
+      updatedAt: expect.any(Date),
+    });
+  });
+
+  it('carries pauseReason forward while pause_collection.resumes_at is set', async () => {
+    const { db, updateSet } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', pauseReason: 'vacation' },
+    });
+
+    await handleSubscriptionSynced(db as never, {
+      id: 'sub_1',
+      status: 'paused',
+      items: { data: [] },
+      pause_collection: { resumes_at: 1700000000 },
+    } as never);
+
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'paused', pauseResumesAt: new Date(1700000000 * 1000), pauseReason: 'vacation' }),
+    );
+  });
+
+  it('reports our own status as paused whenever pause_collection is set, even though Stripe leaves its real status as active underneath (confirmed Stripe behavior — see subscriptionSyncFields)', async () => {
+    const { db, updateSet } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', pauseReason: 'injury' },
+    });
+
+    await handleSubscriptionSynced(db as never, {
+      id: 'sub_1',
+      status: 'active',
+      items: { data: [] },
+      pause_collection: { resumes_at: 1700000000 },
+    } as never);
+
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'paused', pauseReason: 'injury' }));
+  });
+
+  it('clears a stale pauseReason once pause_collection is gone (resumed)', async () => {
+    const { db, updateSet } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', pauseReason: 'vacation' },
+    });
+
+    await handleSubscriptionSynced(db as never, {
+      id: 'sub_1',
+      status: 'active',
+      items: { data: [] },
+      pause_collection: null,
+    } as never);
+
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ pauseResumesAt: null, pauseReason: null }));
+  });
+
+  it('maps incomplete_expired -> canceled and unpaid -> past_due', async () => {
+    const { db, updateSet } = mockDb({ subscriptionFindFirst: { id: 'sub-row-1', pauseReason: null } });
+    await handleSubscriptionSynced(db as never, { id: 'sub_1', status: 'unpaid', items: { data: [] } } as never);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'past_due' }));
+  });
+});
+
 describe('dispatchWebhookEvent', () => {
+  const origin = 'https://instar-fit.vercel.app';
+
   it('routes checkout.session.completed, payment_intent.succeeded, and invoice.paid to their handlers, and no-ops on anything else', async () => {
     const { db } = mockDb({});
     (upsertClient as jest.Mock).mockResolvedValue({ id: 'client-1' });
 
     await expect(
-      dispatchWebhookEvent(db as never, { type: 'checkout.session.completed', data: { object: { mode: 'payment', metadata: {} } } } as never),
+      dispatchWebhookEvent(db as never, { type: 'checkout.session.completed', data: { object: { mode: 'payment', metadata: {} } } } as never, origin),
     ).resolves.toBeUndefined();
     await expect(
-      dispatchWebhookEvent(db as never, { type: 'payment_intent.succeeded', data: { object: { metadata: {} } } } as never),
+      dispatchWebhookEvent(db as never, { type: 'payment_intent.succeeded', data: { object: { metadata: {} } } } as never, origin),
     ).resolves.toBeUndefined();
     await expect(
-      dispatchWebhookEvent(db as never, { type: 'invoice.paid', data: { object: { parent: null } } } as never),
+      dispatchWebhookEvent(db as never, { type: 'invoice.paid', data: { object: { parent: null } } } as never, origin),
     ).resolves.toBeUndefined();
-    await expect(dispatchWebhookEvent(db as never, { type: 'account.updated', data: { object: {} } } as never)).resolves.toBeUndefined();
+    await expect(dispatchWebhookEvent(db as never, { type: 'account.updated', data: { object: {} } } as never, origin)).resolves.toBeUndefined();
+  });
+
+  it('routes the Sprint-4 dunning and subscription-sync event types', async () => {
+    const { db } = mockDb({ subscriptionFindFirst: null });
+
+    await expect(
+      dispatchWebhookEvent(db as never, { type: 'invoice.payment_failed', data: { object: { parent: null } } } as never, origin),
+    ).resolves.toBeUndefined();
+    await expect(
+      dispatchWebhookEvent(db as never, { type: 'invoice.payment_action_required', data: { object: { parent: null } } } as never, origin),
+    ).resolves.toBeUndefined();
+    for (const type of [
+      'customer.subscription.updated',
+      'customer.subscription.deleted',
+      'customer.subscription.paused',
+      'customer.subscription.resumed',
+    ] as const) {
+      await expect(
+        dispatchWebhookEvent(db as never, { type, data: { object: { id: 'sub_1', status: 'active', items: { data: [] } } } } as never, origin),
+      ).resolves.toBeUndefined();
+    }
   });
 });

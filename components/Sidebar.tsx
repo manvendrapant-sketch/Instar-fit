@@ -10,6 +10,7 @@ import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
 import { PAYOUTS_PATH } from '@/lib/payouts';
+import { CLIENTS_PATH } from '@/lib/coachClients';
 
 const SPACE_COUNTS: Record<string, string> = {
   roster: '36',
@@ -92,6 +93,21 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                       <Icon name="offers" />
                       {tile.title}
                       {offers.length > 0 && <span className="n">{offers.length}</span>}
+                    </Link>
+                  );
+                }
+                if (tile.id === 'subscribers') {
+                  const on = pathname.startsWith(CLIENTS_PATH);
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={CLIENTS_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <Icon name="roster" />
+                      {tile.title}
                     </Link>
                   );
                 }

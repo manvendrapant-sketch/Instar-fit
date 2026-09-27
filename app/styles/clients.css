@@ -1,0 +1,79 @@
+/* Coach-facing client status list (Sprint 4) — a simple table, not a bespoke component system. */
+.ins-clients-table {
+  padding: 26px var(--space-26);
+}
+.ins-clients-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ins-clients-table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 10px 10px;
+}
+.ins-clients-table td {
+  padding: 12px 10px;
+  border-top: 1px solid var(--chip);
+  vertical-align: top;
+  font-size: 14px;
+}
+.ins-clients-table td b {
+  display: block;
+  font-weight: 600;
+}
+.ins-clients-email {
+  display: block;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.ins-clients-sub {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Client-facing "My subscription" cards (Sprint 4). */
+.ins-client-sub-card {
+  padding: 22px var(--space-26);
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ins-client-sub-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ins-client-sub-head h3 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+.ins-client-sub-head .ins-num {
+  color: var(--muted);
+  font-size: 14px;
+}
+.ins-client-banner {
+  padding: 10px 14px;
+  border-radius: var(--radius-cell);
+  font-size: 13.5px;
+}
+.ins-client-banner.bad {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: var(--bad);
+}
+.ins-client-pause-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--chip);
+}

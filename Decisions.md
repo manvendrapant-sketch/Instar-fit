@@ -5,6 +5,72 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-27 — Sprint 4 completed for both workplans: recurring billing, dunning, pause, client self-serve
+
+Manvendra asked to complete Sprint 4 for both Manvendra's (`Workplan-Manvendra.md`, "Recurring
+billing + dunning + pause") and Pari's (`Workplan-Pari.md`, "Client self-serve (billing, pause)")
+workplans in one pass, after confirming that of the five items in Manvendra's Sprint 4, none had
+actually been built yet — only the client magic-link login (the entry directly below this one) was
+in place as shared infrastructure. No schema change was needed: Sprint 1's `subscriptions` table
+already had `status` (with `paused`/`past_due`/`canceled` in its enum), `pauseResumesAt` and
+`pauseReason` — this pass is all application logic on top of columns that already existed.
+
+**Stripe quirk that reshaped the whole design, confirmed against this pinned SDK's own `.d.ts`
+files, not assumed**: setting `pause_collection` on a subscription does **not** change Stripe's own
+`Subscription.status` — a real Stripe `status: 'paused'` means something unrelated (a trial that
+ended with no payment method on file). So our own `status: 'paused'` can't be a passthrough of
+Stripe's status field; `lib/commerce/subscriptions.ts`'s `subscriptionSyncFields` derives it
+instead: whenever `pause_collection.resumes_at` is set, we report `paused` regardless of what
+Stripe's status says underneath (which stays `active`), and fall back to the real mapped status the
+moment `pause_collection` clears — whether we cleared it (resume/cancel) or Stripe did automatically
+at `resumes_at`. Getting this wrong would have meant any unrelated `customer.subscription.updated`
+webhook silently un-pausing a client's row in our own database while the client was still actually
+paused on Stripe's side.
+
+**`customer.subscription.paused`/`.resumed` events exist in this Stripe API version but are a red
+herring for this feature** — they fire for the trial/no-payment-method case above, not for
+`pause_collection`. They're still routed to the same `handleSubscriptionSynced` handler as
+`.updated`/`.deleted` (harmless — that handler just re-syncs from whatever the Subscription object
+says), but the actual "pause -> auto-resume" signal this feature relies on is an ordinary
+`customer.subscription.updated` firing once Stripe auto-clears `pause_collection` at `resumes_at`.
+
+**Dunning nudge reuses the magic-link token mechanism** (`client_login_tokens`,
+`generateLoginToken`/`hashLoginToken`, 15-minute single-use tokens) rather than inventing a second
+token system — `invoice.payment_failed`/`invoice.payment_action_required` mint one and email it via
+a new `sendDunningEmail`, so "one-tap card update" is: click the email, land already logged in, hit
+"Update card". These two handlers deliberately never write `subscriptions.status` themselves —
+`customer.subscription.updated` (via `handleSubscriptionSynced`) stays the single source of truth
+for status, so two handlers can't race to write conflicting values from events whose delivery order
+Stripe doesn't guarantee.
+
+**Cancel is immediate, not at period end.** Neither workplan specifies which; immediate is the
+simpler of the two reasonable readings and needed no new "cancels on <date>" field in the shared
+contract. Revisit if "keep access until the period already paid for ends" is ever asked for
+explicitly — that would need a `cancelAtPeriodEnd` field Pari's UI doesn't have today.
+
+**Card update via the Stripe Customer Portal**, per the workplan's own "Stripe Customer Portal
+session or our own update-card endpoint" wording — the Portal is the option named first. Needs a
+Customer Portal Configuration to exist in the Stripe Dashboard (Settings -> Billing -> Customer
+portal) before `billingPortal.sessions.create()` will succeed in production; this is a
+Dashboard-only step this session cannot do or verify (same standing sandbox limitation as
+Stripe/Postgres network access elsewhere in this repo's history).
+
+**Stripe Smart Retries** (Manvendra's Sprint 4 second bullet) is also Dashboard-only config
+(Billing -> Subscriptions and emails -> Manage retries) — nothing in code enables or disables it;
+flagged here so it isn't mistaken for something this pass forgot to wire up.
+
+**Coach view of client status** (`GET /api/coach/clients`, `/business/clients`) is one row per
+subscription, not per client — a client with two subscriptions to the same coach appears twice,
+matching how `CoachClientSummary` was already shaped in `types.ts` before this pass (added
+alongside the client-facing types, ahead of building either side, so both could be built against a
+settled contract).
+
+**Not done / deliberately out of scope**: no live-Stripe or live-DB verification (same standing gap
+as every other pass in this repo's history — this sandbox reaches neither); no component-rendering
+tests for the new `ClientAccountView`/`ClientsPage`/`PauseForm`/`SubscriptionCard` (consistent with
+every other component in this repo); reconciling an offer's orphaned Stripe product/price across a
+key rotation remains unhandled, unrelated to this pass.
+
 ## 2026-09-27 — Client magic-link login (Sprint 4, backend + minimal frontend)
 
 Manvendra asked what's next after Sprint 3 closed; Sprint 4 of `Workplan-Pari.md` is client

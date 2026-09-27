@@ -3,10 +3,13 @@ import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from './schema';
-import { subscriptions, payments } from './schema';
+import { subscriptions, payments, clientLoginTokens } from './schema';
 import { upsertClient } from './clients';
 import { computeCheckoutBreakdown } from './money';
+import { mapSubscriptionStatus, subscriptionSyncFields } from './subscriptions';
 import { getStripe } from '@/lib/stripe/client';
+import { generateLoginToken, hashLoginToken, LOGIN_TOKEN_TTL_MS } from '@/lib/auth/clientToken';
+import { sendDunningEmail } from '@/lib/email/send';
 
 type Db = PostgresJsDatabase<typeof schema>;
 type SubscriptionStatus = (typeof subscriptions.$inferInsert)['status'];
@@ -14,18 +17,6 @@ type SubscriptionStatus = (typeof subscriptions.$inferInsert)['status'];
 function metaStr(meta: Stripe.Metadata | null | undefined, key: string): string | undefined {
   const v = meta?.[key];
   return typeof v === 'string' && v ? v : undefined;
-}
-
-/**
- * Stripe's own Subscription.status has two values our coarser DB enum doesn't: `incomplete_expired`
- * (mapped to `canceled` — it never became payable) and `unpaid` (mapped to `past_due` — real
- * dunning handling is Sprint 4, but this is the closest of our six states until then).
- */
-function mapSubscriptionStatus(status: string): SubscriptionStatus {
-  if (status === 'incomplete_expired') return 'canceled';
-  if (status === 'unpaid') return 'past_due';
-  const known: SubscriptionStatus[] = ['incomplete', 'trialing', 'active', 'past_due', 'paused', 'canceled'];
-  return (known as string[]).includes(status) ? (status as SubscriptionStatus) : 'incomplete';
 }
 
 /**
@@ -190,8 +181,96 @@ export async function handleInvoicePaid(db: Db, invoice: Stripe.Invoice): Promis
   }
 }
 
+/** Shared by the two dunning events — both only carry a bare Stripe subscription id. */
+async function findSubscriptionByInvoice(db: Db, invoice: Stripe.Invoice) {
+  const subscriptionRef = invoice.parent?.subscription_details?.subscription;
+  const stripeSubscriptionId = typeof subscriptionRef === 'string' ? subscriptionRef : subscriptionRef?.id;
+  if (!stripeSubscriptionId) return null;
+  return (
+    (await db.query.subscriptions.findFirst({
+      where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, stripeSubscriptionId),
+    })) ?? null
+  );
+}
+
+/**
+ * The dunning nudge itself: mints the same single-use magic-link token login already uses (so
+ * "update your card" is one tap, no password), and emails it. Never throws — an email-provider
+ * hiccup here shouldn't fail the whole webhook delivery and trigger a Stripe retry.
+ */
+async function sendDunningNudge(
+  db: Db,
+  origin: string,
+  subscription: typeof subscriptions.$inferSelect,
+  reason: 'failed' | 'action_required',
+): Promise<void> {
+  try {
+    const [client, offer] = await Promise.all([
+      db.query.clients.findFirst({ where: (c, { eq: eqCol }) => eqCol(c.id, subscription.clientId) }),
+      db.query.offers.findFirst({ where: (o, { eq: eqCol }) => eqCol(o.id, subscription.offerId) }),
+    ]);
+    if (!client) return;
+    const coach = await db.query.coaches.findFirst({ where: (c, { eq: eqCol }) => eqCol(c.id, client.coachId) });
+    if (!coach) return;
+
+    const rawToken = generateLoginToken();
+    await db.insert(clientLoginTokens).values({
+      clientId: client.id,
+      tokenHash: hashLoginToken(rawToken),
+      expiresAt: new Date(Date.now() + LOGIN_TOKEN_TTL_MS),
+    });
+    const loginUrl = new URL(`/api/client/login/verify?token=${rawToken}`, origin).toString();
+
+    await sendDunningEmail(client.email, loginUrl, coach.displayName, offer?.name ?? 'your subscription', reason);
+  } catch (err) {
+    console.error(`sendDunningNudge (${reason}) failed for subscription ${subscription.id}:`, err);
+  }
+}
+
+/**
+ * Only ever sends the nudge — never writes `subscriptions.status` itself. `customer.subscription.
+ * updated` (via handleSubscriptionSynced) is the single source of truth for status, so two
+ * handlers can't race to write conflicting values from events whose delivery order Stripe doesn't
+ * guarantee.
+ */
+export async function handleInvoicePaymentFailed(db: Db, invoice: Stripe.Invoice, origin: string): Promise<void> {
+  const subscription = await findSubscriptionByInvoice(db, invoice);
+  if (!subscription) return;
+  await sendDunningNudge(db, origin, subscription, 'failed');
+}
+
+export async function handleInvoicePaymentActionRequired(db: Db, invoice: Stripe.Invoice, origin: string): Promise<void> {
+  const subscription = await findSubscriptionByInvoice(db, invoice);
+  if (!subscription) return;
+  await sendDunningNudge(db, origin, subscription, 'action_required');
+}
+
+/**
+ * One shared handler for every subscription-lifecycle event Stripe sends
+ * (`customer.subscription.updated/deleted/paused/resumed`) — all four are "here's the
+ * subscription's current state, sync it," so there's no benefit to four near-duplicate handlers.
+ * This also satisfies "pause -> auto-resume" for free: Stripe itself clears `pause_collection` at
+ * `resumes_at` and fires `.resumed`, which lands here like any other sync.
+ */
+export async function handleSubscriptionSynced(db: Db, sub: Stripe.Subscription): Promise<void> {
+  const existing = await db.query.subscriptions.findFirst({
+    where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, sub.id),
+  });
+  if (!existing) {
+    console.error(`customer.subscription synced ${sub.id}: no subscriptions row yet, skipping`);
+    return;
+  }
+
+  const fields = subscriptionSyncFields(sub, existing.pauseReason);
+
+  await db
+    .update(subscriptions)
+    .set({ ...fields, updatedAt: new Date() })
+    .where(eq(subscriptions.id, existing.id));
+}
+
 /** The one place a Stripe event type is routed to its handler — see app/api/webhooks/stripe/route.ts. */
-export async function dispatchWebhookEvent(db: Db, event: Stripe.Event): Promise<void> {
+export async function dispatchWebhookEvent(db: Db, event: Stripe.Event, origin: string): Promise<void> {
   switch (event.type) {
     case 'checkout.session.completed':
       return handleCheckoutSessionCompleted(db, event.data.object as Stripe.Checkout.Session);
@@ -199,6 +278,15 @@ export async function dispatchWebhookEvent(db: Db, event: Stripe.Event): Promise
       return handlePaymentIntentSucceeded(db, event.data.object as Stripe.PaymentIntent);
     case 'invoice.paid':
       return handleInvoicePaid(db, event.data.object as Stripe.Invoice);
+    case 'invoice.payment_failed':
+      return handleInvoicePaymentFailed(db, event.data.object as Stripe.Invoice, origin);
+    case 'invoice.payment_action_required':
+      return handleInvoicePaymentActionRequired(db, event.data.object as Stripe.Invoice, origin);
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted':
+    case 'customer.subscription.paused':
+    case 'customer.subscription.resumed':
+      return handleSubscriptionSynced(db, event.data.object as Stripe.Subscription);
     default:
       // Every other event type (account.updated, etc.) is stored for the record but has no
       // handler yet — see CLAUDE.md for what's Sprint 2+ scope.

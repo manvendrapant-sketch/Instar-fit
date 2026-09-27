@@ -222,6 +222,7 @@ export const SPACES: SpaceDef[] = [
       { id: 'payouts', title: 'Payouts', description: 'Money in, pending and on its way to you.', statValue: '$2,104', statLabel: 'Friday', lead: true },
       { id: 'offers', title: 'Offers', description: 'Coaching, programs and calls you sell.', statValue: '3', statLabel: 'live' },
       { id: 'storefront', title: 'Storefront', description: 'Your link-in-bio page and checkout.', statValue: '1,284', statLabel: 'visits, 30 days' },
+      { id: 'subscribers', title: 'Clients', description: 'Who is active, paused and past due.' },
       { id: 'settings', title: 'Settings', description: 'Brand, team, security and data export.' },
     ],
   },

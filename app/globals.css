@@ -6,6 +6,7 @@
 @import './styles/offers.css';
 @import './styles/payouts.css';
 @import './styles/public.css';
+@import './styles/clients.css';
 
 * {
   box-sizing: border-box;
