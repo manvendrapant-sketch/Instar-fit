@@ -103,10 +103,14 @@ export interface CheckoutQuoteResponse {
   breakdown: MoneyBreakdown;
 }
 
-/** POST /api/checkout — Sprint 3. Stub shape so Pari can type against it now. */
+/** POST /api/checkout. */
 export interface CreateCheckoutSessionRequest {
   offerId: string;
   clientEmail: string;
+  /** App path Stripe returns the client to after paying. Defaults to the coach's storefront. */
+  successPath?: string;
+  /** App path Stripe returns the client to if they cancel. Defaults to the coach's storefront. */
+  cancelPath?: string;
 }
 export interface CreateCheckoutSessionResponse {
   checkoutUrl: string;

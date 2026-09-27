@@ -5,6 +5,78 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-27 — Sprint 3 (Checkout backend), branch `feat/commerce-checkout`
+
+Picked as the next thing to build after reviewing `Workplan-Manvendra.md`'s remaining sprints
+(recommended over Sprint 4/5 since nothing else can generate a real payment to test against until
+checkout exists). Branched from `main` at the tip that already has migrations 0000-0004 applied and
+the storefront/offers/payouts APIs. No schema changes this pass — `offers.stripeProductId` and
+`prices.stripePriceId` (Sprint-1/2 columns) are exactly what checkout needs.
+
+**Fee application is exact for one-time offers, approximate for subscriptions — this is a real,
+disclosed trade-off, not an oversight.** Stripe Connect's application fee on a plain payment
+(`payment_intent_data.application_fee_amount`) is a fixed cents amount, so a one-time Checkout can
+take exactly `platformFeeCents` (2% of the base price only) regardless of what else is on the
+invoice. A Subscription's application fee (`subscription_data.application_fee_percent`) can only be
+a *percentage of the whole invoice*, and our Checkout Session bills the base price and the
+disclosed Service fee as two separate line items on that same invoice — so the percentage
+necessarily also takes its cut of the Service fee line, not just of the base price. Rejected:
+billing the fee as a separate off-Checkout invoice item just to keep the application fee exact,
+which would mean building real invoicing outside Stripe Checkout for what's still a small
+percentage discrepancy. Revisit if/when the exact number matters (financial reporting, an audit) —
+until then this is Sprint 3's known approximation, not Sprint 6 hardening scope.
+
+**The full `MoneyBreakdown` (base + fee + total + platform's cut) is snapshotted into Checkout
+metadata as strings at session-creation time**, and the webhook handlers recompute a `payments` row
+from that snapshot (one-time) or by re-running `computeCheckoutBreakdown` against the `prices` row
+a subscription is pinned to (recurring) — never by trusting Stripe's own invoice/PaymentIntent
+amounts directly. Rejected: reading `amount_paid`/`amount_received` off the Stripe object, which
+would make Stripe's math a second, potentially-diverging source of truth for the exact numbers the
+workplan asked this helper to be the single source of.
+
+**`GET /api/checkout/quote`'s response deliberately omits `platformFeeCents`**, unlike the coach-only
+`GET /api/offers/quote` (which already includes it, via a plain object spread of `money.ts`'s
+server-side `MoneyBreakdown`, not something this pass touches). The offer builder's audience is the
+coach, who has reason to see their own take-home number; the checkout quote's audience is an
+anonymous client, for whom disclosing the platform's exact cut has no product reason and mildly
+undercuts the "flat service fee, not itemized further" framing of decision #3 above. `types.ts`'s
+shared `MoneyBreakdown` was already shaped to exclude it — this pass is the first thing that
+actually enforces that by constructing the response explicitly rather than spreading.
+
+**Webhook idempotency was tightened from "row exists" to "row has `processedAt` set."** The
+pre-Sprint-3 webhook route recorded an event and returned 200 *before* any handler ran (there was no
+per-event-type handler at all yet), so "the row exists" and "the event was fully handled" were the
+same fact. Once handlers exist and can throw partway through (e.g. a DB error after the client
+upsert but before the payment insert), those two facts diverge: a retried delivery whose first
+attempt crashed would find the row already there via `onConflictDoNothing` and skip reprocessing
+forever under the old logic, permanently losing that webhook. `webhook_events.processedAt` (already
+in the Sprint-1 schema, previously unused) is now set only after `dispatchWebhookEvent` returns
+without throwing; a conflict on insert with `processedAt` still null is treated as "retry me," not
+"duplicate." Rejected: a separate `webhook_processing_log` table, which would duplicate what
+`processedAt` already gives us for free.
+
+**Client upsert keys on `(coachId, email)`, not `stripeCustomerId`.** At session-creation time we
+don't yet have a Stripe customer id (Checkout creates the Customer during the flow); at
+`checkout.session.completed` time we do, so it's saved then, but email is the identifier available
+throughout and is what a repeat client will match on across separate checkouts. No DB unique
+constraint enforces this (see `clients` in `schema.ts` — only `stripeCustomerId` has one) — a race
+could in theory create two rows for the same person; accepted as consistent with how loosely this
+schema is constrained elsewhere (offers/prices have no analogous DB-level guards either).
+
+**`payment_intent.succeeded` and `invoice.paid` are kept strictly non-overlapping by metadata
+presence, not by inspecting `PaymentIntent.invoice`.** The Stripe API version this app is pinned to
+(`2026-08-26.dahlia`) removed the direct `invoice`/`subscription`/`charge` fields from
+`PaymentIntent` and `Invoice` in favor of `invoice.parent.subscription_details.subscription` and
+`invoice.payments[].payment.{payment_intent,charge}` — a real, checked-against-the-installed-SDK
+breaking change from older Stripe docs/training data, per `AGENTS.md`'s warning that this isn't the
+Stripe (or Next.js) anyone's used before. Practical effect: `createCheckoutSession` only ever sets
+`payment_intent_data.metadata` for one-time (`mode: 'payment'`) sessions, never for subscriptions —
+so a bare `pi.metadata.offerId` check alone is enough to tell "one-time Checkout payment, handle it
+here" from "some other PaymentIntent (a subscription invoice's own, or anything unrelated), leave it
+to `invoice.paid`" apart, without needing the now-removed field.
+
+---
+
 ## 2026-09-26 — Fixed live signup/login 500s: TLS to Supabase, uncaught route errors
 
 Reported by Manvendra directly, hours after the merge/deploy above. Full detail in `CLAUDE.md`'s

@@ -760,3 +760,80 @@ rule pushes back on this exact pattern, but the client-side Router Cache it's st
 toward is precisely what caused the bug.
 **If a future screen needs to change who's logged in, it needs a full reload too — `router.push`+
 `refresh()` is not enough**, whatever Next's lint rule suggests.
+
+## Sprint 3 — Checkout backend (2026-09-27, branch `feat/commerce-checkout`)
+
+Manvendra shared `Workplan-Manvendra.md` and asked what to pick next; recommended Checkout since
+nothing else in the workplan can produce a real payment to test against until it exists. Branched
+from `main` (which already has migrations 0000-0004 applied and the storefront/offers/payouts APIs
+live). No schema changes needed — `offers.stripeProductId`/`prices.stripePriceId` already exist.
+
+**New**: `lib/commerce/checkout.ts` (`createCheckoutSession`), `lib/commerce/clients.ts`
+(`upsertClient`, keyed on `(coachId, email)` — no DB unique constraint on that pair, same
+looser-than-ideal guarantee as elsewhere in this schema), `lib/commerce/webhookHandlers.ts`
+(`dispatchWebhookEvent` plus one handler per event type), `GET /api/checkout/quote` (public — the
+client-facing "what will I pay" preview), `POST /api/checkout` (public — creates the Stripe
+Checkout Session; never writes `clients`/`subscriptions`/`payments` itself, only the resulting
+webhooks do, so an abandoned checkout leaves no stray row).
+
+**Charge shape follows the Week-1 decisions** (see `Decisions.md`): destination charges with
+`on_behalf_of` the coach's connected account, the Service fee as its own Checkout line item (never
+folded into the base price), Instar's cut as an application fee. One-time offers get an exact
+`application_fee_amount`; subscriptions can only use `application_fee_percent` (a Stripe Connect
+constraint), which necessarily also takes its cut of the Service-fee line, not just the base price —
+a disclosed, intentional approximation, see `Decisions.md` for why this isn't worth fixing yet.
+
+**Webhook handling now actually writes data**, not just dedupes:
+- `checkout.session.completed` — upserts the client; for a subscription, also inserts the
+  `subscriptions` row (retrieving the real Stripe status/`current_period_end` via
+  `stripe.subscriptions.retrieve()`, since the Checkout Session event alone doesn't carry either).
+- `payment_intent.succeeded` — writes a `payments` row, but **only** for one-time Checkout
+  payments: it keys off `pi.metadata.offerId` etc. being present, which is only ever set on
+  `payment_intent_data` for `mode: 'payment'` sessions. A subscription invoice's own PaymentIntent
+  carries none of that metadata, so this is a no-op for it by construction, not by inspecting a
+  `PaymentIntent.invoice` field — **that field doesn't exist in this app's pinned Stripe API version**
+  (`2026-08-26.dahlia` moved invoice/subscription/charge linkage off PaymentIntent onto
+  `invoice.parent.subscription_details` / `invoice.payments[]` — checked directly against the
+  installed `stripe` SDK's `.d.ts` files, not assumed from training data; see `AGENTS.md`'s warning
+  that this isn't the Stripe anyone's used before, same as it isn't the Next.js).
+- `invoice.paid` — the source of truth for recurring payments. Joins `invoice.parent
+  .subscription_details.subscription` back to our own `subscriptions` row to get `offerId`/
+  `priceId`/`coachId` (via the row's `clientId` → `clients.coachId`), then **recomputes** the
+  breakdown from that price's `unitAmountCents` via `computeCheckoutBreakdown` rather than trusting
+  Stripe's own invoice amounts — keeps this the one place fees are computed, per the workplan's own
+  "single source of truth" requirement. Marks the subscription `active` on first successful invoice.
+
+**Webhook idempotency was tightened**: the pre-Sprint-3 route recorded an event and returned 200
+before any handler existed, so "row exists" and "fully handled" were the same fact. Now that
+handlers can throw partway through, `webhook_events.processedAt` (already in the schema, previously
+unused) is the real marker — a conflict on insert with `processedAt` still null means a previous
+attempt crashed before finishing, so it's reprocessed rather than silently dropped. See
+`Decisions.md` for the full reasoning.
+
+**All new/changed code shipped with tests** (standing rule): `lib/commerce/checkout.test.ts`,
+`lib/commerce/clients.test.ts`, `lib/commerce/webhookHandlers.test.ts`,
+`app/api/checkout/route.test.ts`, `app/api/checkout/quote/route.test.ts`, and a rewritten
+`app/api/webhooks/stripe/route.test.ts` covering the new dispatch/reprocess-on-crash logic.
+Verified: `npx tsc --noEmit`, `npx eslint .`, `npm test` (38 suites, 335 tests) all clean; `npm run
+build` succeeds with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` unset, and
+`/api/checkout`/`/api/checkout/quote` both show up in the build's route list.
+
+**Not done / deliberately out of scope for this pass**:
+- No live-Stripe or live-DB verification — same standing gap as every other pass in this file (this
+  sandbox can reach neither Postgres nor, unverified either way this time, Stripe's live API; only
+  unit tests with `getDb`/`getStripe` mocked ran).
+- **The public storefront's offer buttons still show "Checkout is coming soon"**
+  (`components/PublicOfferList.tsx`) — wiring them to `POST /api/checkout` is Pari's mobile-checkout
+  work per her own workplan (`storefront-checklist`'s Sprint 3), not part of Manvendra's backend
+  ask answered here. `GET /api/checkout/quote` and `POST /api/checkout` exist and are tested, ready
+  for that UI to call whenever it's built.
+- No webhook endpoint is registered in Stripe's Dashboard yet and `STRIPE_WEBHOOK_SECRET` isn't set
+  in Vercel — needed before any of this fires for real in production; still just the local/test
+  path today, same gap Sprint 1 already flagged and this pass didn't close.
+- Refunds, disputes, subscription pause/resume, and dunning are explicitly later sprints (4-5) per
+  the workplan — this pass only makes a payment "land in Postgres from webhooks alone," per Sprint
+  3's own done-when bar, nothing past that.
+- `payments.stripePaymentIntentId`'s uniqueness can't dedupe an `invoice.paid` retry that lands
+  with a null id (only happens if `invoice.payments` isn't present on that delivery) — accepted
+  as rare given the webhook-level `processedAt` dedupe already covers the common case; flagged in
+  code, not fixed further.

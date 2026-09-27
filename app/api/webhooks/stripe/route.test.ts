@@ -1,9 +1,11 @@
 import { POST } from '@/app/api/webhooks/stripe/route';
 import { getStripe } from '@/lib/stripe/client';
 import { getDb } from '@/lib/commerce/db';
+import { dispatchWebhookEvent } from '@/lib/commerce/webhookHandlers';
 
 jest.mock('@/lib/stripe/client');
 jest.mock('@/lib/commerce/db');
+jest.mock('@/lib/commerce/webhookHandlers');
 
 const FAKE_EVENT = { id: 'evt_123', type: 'account.updated' };
 
@@ -11,12 +13,26 @@ function webhookRequest(body: string, headers: Record<string, string> = {}) {
   return new Request('http://localhost/api/webhooks/stripe', { method: 'POST', headers, body });
 }
 
-function mockDbInsert(returningResult: unknown[]) {
-  const returning = jest.fn().mockResolvedValue(returningResult);
-  const onConflictDoNothing = jest.fn().mockReturnValue({ returning });
-  const values = jest.fn().mockReturnValue({ onConflictDoNothing });
-  (getDb as jest.Mock).mockReturnValue({ insert: jest.fn().mockReturnValue({ values }) });
-  return { values, onConflictDoNothing, returning };
+/** Wires up getDb() with insert/query/update chains a test can control per call. */
+function mockDb(opts: { insertReturning: unknown[]; existingRow?: { id: string; processedAt: Date | null } | null }) {
+  const insertReturning = jest.fn().mockResolvedValue(opts.insertReturning);
+  const onConflictDoNothing = jest.fn().mockReturnValue({ returning: insertReturning });
+  const insertValues = jest.fn().mockReturnValue({ onConflictDoNothing });
+  const insert = jest.fn().mockReturnValue({ values: insertValues });
+
+  const findFirst = jest.fn().mockResolvedValue(opts.existingRow ?? null);
+
+  const updateWhere = jest.fn().mockResolvedValue(undefined);
+  const updateSet = jest.fn().mockReturnValue({ where: updateWhere });
+  const update = jest.fn().mockReturnValue({ set: updateSet });
+
+  (getDb as jest.Mock).mockReturnValue({
+    insert,
+    query: { webhookEvents: { findFirst } },
+    update,
+  });
+
+  return { insertValues, findFirst, updateSet, updateWhere };
 }
 
 const originalEnv = process.env;
@@ -24,6 +40,8 @@ const originalEnv = process.env;
 beforeEach(() => {
   jest.clearAllMocks();
   process.env = { ...originalEnv, STRIPE_WEBHOOK_SECRET: 'whsec_test' };
+  (getStripe as jest.Mock).mockReturnValue({ webhooks: { constructEvent: jest.fn().mockReturnValue(FAKE_EVENT) } });
+  (dispatchWebhookEvent as jest.Mock).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -60,31 +78,55 @@ describe('POST /api/webhooks/stripe', () => {
   it('verifies with the raw body, signature header, and configured secret', async () => {
     const constructEvent = jest.fn().mockReturnValue(FAKE_EVENT);
     (getStripe as jest.Mock).mockReturnValue({ webhooks: { constructEvent } });
-    mockDbInsert([{ id: 'row-1' }]);
+    mockDb({ insertReturning: [{ id: 'row-1', processedAt: null }] });
 
     await POST(webhookRequest('{"id":"evt_123"}', { 'stripe-signature': 't=1,v1=abc' }));
 
     expect(constructEvent).toHaveBeenCalledWith('{"id":"evt_123"}', 't=1,v1=abc', 'whsec_test');
   });
 
-  it('stores a new event and returns 200 { received: true }', async () => {
-    (getStripe as jest.Mock).mockReturnValue({ webhooks: { constructEvent: jest.fn().mockReturnValue(FAKE_EVENT) } });
-    const { values } = mockDbInsert([{ id: 'row-1' }]);
+  it('stores a new event, dispatches it, marks it processed, and returns 200', async () => {
+    const { insertValues, updateSet, updateWhere } = mockDb({ insertReturning: [{ id: 'row-1', processedAt: null }] });
 
     const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ received: true });
-    expect(values).toHaveBeenCalledWith({ stripeEventId: 'evt_123', type: 'account.updated', payload: FAKE_EVENT });
+    expect(insertValues).toHaveBeenCalledWith({ stripeEventId: 'evt_123', type: 'account.updated', payload: FAKE_EVENT });
+    expect(dispatchWebhookEvent).toHaveBeenCalledWith(expect.anything(), FAKE_EVENT);
+    expect(updateSet).toHaveBeenCalledWith({ processedAt: expect.any(Date) });
+    expect(updateWhere).toHaveBeenCalled();
   });
 
-  it('dedupes a retried delivery: onConflictDoNothing returns no rows, still 200', async () => {
-    (getStripe as jest.Mock).mockReturnValue({ webhooks: { constructEvent: jest.fn().mockReturnValue(FAKE_EVENT) } });
-    mockDbInsert([]); // empty = the unique index already had this stripeEventId
+  it('skips a genuine duplicate delivery (already processed) without dispatching again', async () => {
+    mockDb({ insertReturning: [], existingRow: { id: 'row-1', processedAt: new Date('2026-01-01') } });
 
     const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ received: true, duplicate: true });
+    expect(dispatchWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('reprocesses a retried delivery whose earlier attempt crashed before processedAt was set', async () => {
+    const { updateSet } = mockDb({ insertReturning: [], existingRow: { id: 'row-1', processedAt: null } });
+
+    const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ received: true });
+    expect(dispatchWebhookEvent).toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith({ processedAt: expect.any(Date) });
+  });
+
+  it('returns 500 and never marks the event processed when the handler throws', async () => {
+    const { updateSet } = mockDb({ insertReturning: [{ id: 'row-1', processedAt: null }] });
+    (dispatchWebhookEvent as jest.Mock).mockRejectedValue(new Error('boom'));
+
+    const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Handler failed' });
+    expect(updateSet).not.toHaveBeenCalled();
   });
 });
