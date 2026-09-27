@@ -35,6 +35,7 @@ const PATHS: Record<string, string> = {
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
 };
 
 export type IconName = keyof typeof PATHS;

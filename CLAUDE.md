@@ -837,3 +837,37 @@ build` succeeds with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` unset,
   with a null id (only happens if `invoice.payments` isn't present on that delivery) — accepted
   as rare given the webhook-level `processedAt` dedupe already covers the common case; flagged in
   code, not fixed further.
+
+### Storefront checkout buttons wired up (2026-09-27, same branch, later same day)
+
+Manvendra asked for the "coming soon" checkout buttons to actually work, explicitly overriding the
+"that's Pari's task" scoping note above — done in this session rather than left for her workplan.
+
+**New**: `lib/checkout.ts` (`createCheckoutSessionApi`, the frontend fetch wrapper following the
+`lib/offers.ts`/`lib/payouts.ts` pattern over `apiFetch`), `components/CheckoutDialog.tsx` — the one
+screen between an offer card and Stripe-hosted Checkout, collecting just the client's email (the
+only thing `POST /api/checkout` needs from the browser; Stripe's own page collects card details).
+`components/PublicOfferList.tsx` now holds which offer is selected and renders the dialog instead of
+a toast placeholder. Added a `close` icon to `lib/icons.tsx` (didn't exist before — every other
+dismiss action in this app is a full page/link, not an in-page dialog).
+
+**On success this does a real `window.location.href` navigation to Stripe's `checkoutUrl`** — an
+external redirect, not a client-side route change, so none of the Router-Cache-staleness class of
+bugs documented earlier in this file applies here (the whole app is torn down regardless). New CSS
+in `app/styles/public.css` (`.ins-checkout-overlay`/`.ins-checkout-box`/`.ins-checkout-close`)
+follows the same fixed-overlay-plus-frosted-panel pattern as the command palette (`.ins-cmdk`).
+
+**Verified in a real dev server** (Playwright): built a temporary, unlinked preview page rendering
+`PublicOfferList` with hardcoded offer data (deleted before finishing — the real public storefront
+page's data loads server-side via `loadPublicProfile`, which a browser-level Playwright route mock
+can't intercept, unlike the client-side `POST /api/checkout` call this pass actually needed to
+verify). Confirmed: clicking an offer opens the dialog; submitting with no email shows the inline
+field error without calling the API; a valid email posts `{offerId, clientEmail}` to
+`/api/checkout` and navigates to the mocked `checkoutUrl`; Escape closes the dialog. Screenshots
+taken, not just asserted, same standard as the rest of this file's UI verifications.
+
+**Not done**: no component-rendering test for `CheckoutDialog`/`PublicOfferList` — consistent with
+every other component in this repo (`SignupForm`, `LoginForm`, `TopBar`, `Sidebar`, ...), since
+component-rendering tests still need jsdom + React Testing Library, a setup this repo hasn't added
+(see "Testing (Jest)" above). `lib/checkout.ts` (the testable, non-component logic) has its own
+test file, per the standing rule.

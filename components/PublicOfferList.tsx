@@ -1,18 +1,19 @@
 'use client';
 
+import { useState } from 'react';
 import type { OfferSummary } from '@/lib/commerce/types';
-import { useAppState } from '@/lib/store';
 import { OfferCard } from '@/components/OfferCard';
+import { CheckoutDialog } from '@/components/CheckoutDialog';
 
-/** The public page's offer cards. Checkout is Sprint 3, so for now the buttons say so. */
+/** The public page's offer cards. Selecting one opens the email-collection dialog that starts real checkout. */
 export function PublicOfferList({ offers }: { offers: OfferSummary[] }) {
-  const { toast } = useAppState();
-  const onSelect = () => toast('Checkout is coming soon. You’ll pay by card, Apple Pay or Google Pay.');
+  const [selected, setSelected] = useState<OfferSummary | null>(null);
   return (
     <>
       {offers.map((o) => (
-        <OfferCard key={o.id} offer={o} onSelect={onSelect} />
+        <OfferCard key={o.id} offer={o} onSelect={setSelected} />
       ))}
+      {selected && <CheckoutDialog offer={selected} onClose={() => setSelected(null)} />}
     </>
   );
 }
