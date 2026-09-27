@@ -1,6 +1,7 @@
 import {
   dispatchWebhookEvent,
   handleCheckoutSessionCompleted,
+  handleCustomerUpdated,
   handleInvoicePaid,
   handleInvoicePaymentActionRequired,
   handleInvoicePaymentFailed,
@@ -403,6 +404,39 @@ describe('handleSubscriptionSynced', () => {
   });
 });
 
+describe('handleCustomerUpdated', () => {
+  it('does nothing when no client matches the Stripe customer id', async () => {
+    const { db, update } = mockDb({ clientFindFirst: null });
+    await handleCustomerUpdated(db as never, { id: 'cus_1', name: 'New Name', email: 'new@b.com' } as never);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('syncs name and email onto the matching client row', async () => {
+    const { db, updateSet, updateWhere } = mockDb({
+      clientFindFirst: { id: 'client-1', name: 'Old Name', email: 'old@b.com', stripeCustomerId: 'cus_1' },
+    });
+    await handleCustomerUpdated(db as never, { id: 'cus_1', name: 'New Name', email: 'new@b.com' } as never);
+    expect(updateSet).toHaveBeenCalledWith({ name: 'New Name', email: 'new@b.com', updatedAt: expect.any(Date) });
+    expect(updateWhere).toHaveBeenCalled();
+  });
+
+  it('keeps the existing name when Stripe reports it as null', async () => {
+    const { db, updateSet } = mockDb({
+      clientFindFirst: { id: 'client-1', name: 'Old Name', email: 'old@b.com', stripeCustomerId: 'cus_1' },
+    });
+    await handleCustomerUpdated(db as never, { id: 'cus_1', name: null, email: 'new@b.com' } as never);
+    expect(updateSet).toHaveBeenCalledWith({ name: 'Old Name', email: 'new@b.com', updatedAt: expect.any(Date) });
+  });
+
+  it('is a no-op when nothing actually changed', async () => {
+    const { db, update } = mockDb({
+      clientFindFirst: { id: 'client-1', name: 'Old Name', email: 'old@b.com', stripeCustomerId: 'cus_1' },
+    });
+    await handleCustomerUpdated(db as never, { id: 'cus_1', name: 'Old Name', email: 'old@b.com' } as never);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe('dispatchWebhookEvent', () => {
   const origin = 'https://instar-fit.vercel.app';
 
@@ -441,5 +475,12 @@ describe('dispatchWebhookEvent', () => {
         dispatchWebhookEvent(db as never, { type, data: { object: { id: 'sub_1', status: 'active', items: { data: [] } } } } as never, origin),
       ).resolves.toBeUndefined();
     }
+  });
+
+  it('routes customer.updated', async () => {
+    const { db } = mockDb({ clientFindFirst: null });
+    await expect(
+      dispatchWebhookEvent(db as never, { type: 'customer.updated', data: { object: { id: 'cus_1', name: 'A', email: 'a@b.com' } } } as never, origin),
+    ).resolves.toBeUndefined();
   });
 });

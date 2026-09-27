@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from './schema';
-import { subscriptions, payments, clientLoginTokens } from './schema';
+import { subscriptions, payments, clientLoginTokens, clients } from './schema';
 import { upsertClient } from './clients';
 import { computeCheckoutBreakdown } from './money';
 import { mapSubscriptionStatus, subscriptionSyncFields } from './subscriptions';
@@ -246,6 +246,26 @@ export async function handleInvoicePaymentActionRequired(db: Db, invoice: Stripe
 }
 
 /**
+ * Keeps our own `clients.name`/`email` in sync with Stripe's Customer object — the only way a
+ * client's name/email changes after checkout is through the Stripe Customer Portal (there's no
+ * "edit my details" UI in this app), and that never touches our API, only Stripe's. Scoped by
+ * `stripeCustomerId` (unique per client) rather than email, since email itself might be what
+ * changed.
+ */
+export async function handleCustomerUpdated(db: Db, customer: Stripe.Customer): Promise<void> {
+  const client = await db.query.clients.findFirst({
+    where: (c, { eq: eqCol }) => eqCol(c.stripeCustomerId, customer.id),
+  });
+  if (!client) return;
+
+  const name = customer.name ?? client.name;
+  const email = customer.email ?? client.email;
+  if (name === client.name && email === client.email) return;
+
+  await db.update(clients).set({ name, email, updatedAt: new Date() }).where(eq(clients.id, client.id));
+}
+
+/**
  * One shared handler for every subscription-lifecycle event Stripe sends
  * (`customer.subscription.updated/deleted/paused/resumed`) — all four are "here's the
  * subscription's current state, sync it," so there's no benefit to four near-duplicate handlers.
@@ -287,6 +307,8 @@ export async function dispatchWebhookEvent(db: Db, event: Stripe.Event, origin: 
     case 'customer.subscription.paused':
     case 'customer.subscription.resumed':
       return handleSubscriptionSynced(db, event.data.object as Stripe.Subscription);
+    case 'customer.updated':
+      return handleCustomerUpdated(db, event.data.object as Stripe.Customer);
     default:
       // Every other event type (account.updated, etc.) is stored for the record but has no
       // handler yet — see CLAUDE.md for what's Sprint 2+ scope.

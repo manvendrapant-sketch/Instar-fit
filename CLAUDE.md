@@ -1222,3 +1222,65 @@ session cookie, same technique as every earlier coach-dashboard verification in 
 - Reconciling an offer's orphaned Stripe product/price across a `STRIPE_SECRET_KEY` rotation
   (flagged in the earlier "offer edit" bug fix) remains unhandled — unrelated to this pass, not
   reintroduced by it.
+
+### Dropdown styling fix, missing webhook event subscriptions, and a suspected one-time-vs-subscription gap (2026-09-27)
+
+Manvendra flagged the pause form's reason `<select>` as "ugly, doesn't match the theme" — a real
+bug: `.ins-input select` had no rule at all, so the control kept the browser's own opaque, unthemed
+chrome. Fixed in `app/styles/auth.css` (`appearance: none`, transparent background, themed text,
+the existing `chev` icon rotated 90° as a stand-in for the native arrow — the popup listbox itself
+still uses OS/browser chrome on Chrome/Safari regardless, nothing in CSS reaches inside that part).
+**Gotcha hit while fixing it**: passing `className="ins-select-chev"` to `<Icon>` replaced its
+default `"ins-i"` class instead of adding to it, losing `.ins-i`'s width/height/stroke rules
+entirely — the icon rendered as a giant unsized black triangle covering the whole field. Every
+other icon-with-modifier call site in this repo does `className="ins-i <modifier>"` for exactly
+this reason (e.g. `<Icon name="check" className="ins-i sm" />` in `PayoutsPage.tsx`) — `Icon`'s
+`className` prop replaces, it doesn't merge. Pushed and deployed same as every other fix in this
+file.
+
+Manvendra then reported two things while live-testing the rest of Sprint 4:
+
+**1. Updating his name via the Stripe Customer Portal didn't show up anywhere in the app.** Root
+cause: nothing synced `customer.updated` back into our `clients` table — the Portal only ever
+talks to Stripe directly, never to our API, so without a webhook handler for it, a name/email
+change there was simply invisible to us. Fixed: `handleCustomerUpdated` (`lib/commerce/
+webhookHandlers.ts`) finds the client by `stripeCustomerId` and syncs `name`/`email` when either
+actually changed. **Requires `customer.updated` to be added to the Stripe Dashboard webhook
+endpoint's subscribed events** (Developers → Webhooks → the existing `.../api/webhooks/stripe`
+endpoint → Add events) — same as the six event types below, still not confirmed added as of this
+writing.
+
+**Also surfaced, and worth calling out clearly**: when Sprint 4's webhook handlers were built, the
+existing Stripe webhook endpoint (registered back in Sprint 3 for `checkout.session.completed`,
+`payment_intent.succeeded`, `invoice.paid` only) was never actually updated in the Stripe Dashboard
+to subscribe to the new event types the new handlers listen for. The **code** for
+`customer.subscription.updated/deleted/paused/resumed`, `invoice.payment_failed`,
+`invoice.payment_action_required`, and now `customer.updated` all exist and are deployed — but
+Stripe has no reason to ever send us those events until the endpoint's subscription list is
+updated to include them. This was flagged too narrowly the first time (only the Customer Portal
+Configuration and Smart Retries were called out as Dashboard-only gaps) — this is a third, separate
+Dashboard step of the same kind: **add these seven event types to the existing webhook endpoint**:
+`customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`,
+`customer.subscription.resumed`, `invoice.payment_failed`, `invoice.payment_action_required`,
+`customer.updated`. Until this is done, anything a client changes via the Stripe Customer Portal
+(cancel, plan switch, card, name/email) — or a subscription lifecycle change Stripe makes on its
+own (a renewal failing, a scheduled pause auto-resuming) — will silently never reach this app,
+regardless of how correct the handler code is.
+
+**2. "Bought another offer, the new subscription doesn't show up anywhere — not on my account
+page, not on the coach's Clients page — only the old, already-canceled one does."** Not yet
+root-caused with certainty (this session still can't read production logs, the DB, or Stripe's
+event history directly — same standing limitation as everywhere else in this file). The leading
+hypothesis, from reading the code rather than the data: **`GET /api/client/subscriptions` and
+`GET /api/coach/clients` both only ever query the `subscriptions` table** — a one-time (`one_time`
+or `session` type) offer purchase is recorded in `payments` instead (via `payment_intent.succeeded`,
+which has worked since Sprint 3), and neither of these two new Sprint-4 surfaces was built to show
+`payments` rows at all. If the "new offer" Manvendra tested was a one-time program or single
+session rather than another subscription, this would be exactly the observed symptom — by design
+scope, not a bug: Sprint 4 was framed as recurring-billing self-serve, and one-time purchases were
+never brought into either of these two screens. Asked Manvendra to confirm the new offer's type; if
+it was actually another `subscription`-type offer, the next things to check (this session cannot
+check them itself) are: whether `checkout.session.completed` actually fired for that second
+purchase (Stripe Dashboard → Developers → Webhooks → the endpoint → Events, look for that specific
+delivery and its response code), and whether it 200'd or errored. Not fixed yet — needs that answer
+before writing any code, since guessing at a fix here risks patching the wrong thing.
