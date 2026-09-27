@@ -280,7 +280,7 @@
   align-items: flex-end;
   justify-content: center;
   padding: 20px;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -289,6 +289,15 @@
   width: 420px;
   max-width: 100%;
   padding: var(--space-28) var(--space-28) var(--space-26);
+  /* .ins-panel's own background is a ~3-4% tint meant to sit over the near-solid page
+     background with a blur doing the rest of the work — fine for an in-page panel, but this
+     dialog stacks on top of other panels (the offer card behind it), and backdrop-filter blur
+     isn't reliably rendered everywhere (seen flat/un-blurred in a headless-browser screenshot).
+     Fully opaque, matching the page background exactly, so nothing behind can bleed through
+     regardless of blur support; the border + shadow below are what read it as a raised surface. */
+  background: var(--bg);
+  border-color: var(--panel-border);
+  box-shadow: var(--shadow-float);
   animation: ins-rise 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .ins-checkout-close {

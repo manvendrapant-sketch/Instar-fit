@@ -56,7 +56,7 @@ export function CheckoutDialog({ offer, onClose }: { offer: OfferSummary; onClos
       aria-labelledby="checkout-dialog-title"
       onClick={() => !pending && onClose()}
     >
-      <div className="ins-panel ins-checkout-box ins-in" onClick={(e) => e.stopPropagation()}>
+      <div className="ins-panel ins-checkout-box" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="ins-checkout-close" onClick={onClose} disabled={pending} aria-label="Close">
           <Icon name="close" />
         </button>
