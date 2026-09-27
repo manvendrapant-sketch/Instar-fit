@@ -3,6 +3,7 @@ import type { CoachPublicProfile } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
 import { locationLine, STOREFRONT_PATH, storefrontLink } from '@/lib/storefront';
 import { PublicOfferList } from '@/components/PublicOfferList';
+import { CheckoutOutcomeBanner, type CheckoutOutcome } from '@/components/CheckoutOutcomeBanner';
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -16,10 +17,19 @@ export type PublicBanner = 'owner-live' | 'owner-preview' | null;
  * every visit comes from an Instagram bio link. Renders on the server; only the offer buttons are
  * interactive (PublicOfferList).
  */
-export function PublicStorefrontView({ profile, banner }: { profile: CoachPublicProfile; banner: PublicBanner }) {
+export function PublicStorefrontView({
+  profile,
+  banner,
+  checkoutOutcome,
+}: {
+  profile: CoachPublicProfile;
+  banner: PublicBanner;
+  checkoutOutcome?: CheckoutOutcome | null;
+}) {
   const where = locationLine(profile);
   return (
     <main className="ins-pub">
+      {checkoutOutcome && <CheckoutOutcomeBanner outcome={checkoutOutcome} pathname={`/${profile.handle}`} />}
       {banner && (
         <div className={`ins-pub-banner ${banner === 'owner-live' ? 'live' : ''}`} role="status">
           <span>

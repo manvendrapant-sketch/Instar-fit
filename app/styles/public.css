@@ -328,9 +328,97 @@
   font-size: 15px;
   color: var(--muted);
 }
+.ins-checkout-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--line);
+  background: var(--chip);
+}
+.ins-checkout-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.ins-checkout-row span:first-child {
+  color: var(--text);
+}
+.ins-checkout-row span:last-child {
+  font-weight: 500;
+}
+.ins-checkout-row.muted {
+  color: var(--muted);
+}
+.ins-checkout-row.muted span:first-child {
+  color: var(--muted);
+}
+.ins-checkout-row.total {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 16px;
+  font-weight: 600;
+}
 
 @media (min-width: 760px) {
   .ins-checkout-overlay {
     align-items: center;
   }
+}
+
+/* Checkout outcome banner: shown at the top of /<handle> when a client returns from Stripe
+   Checkout (?checkout=success|cancelled). */
+.ins-checkout-outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+}
+.ins-checkout-outcome-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-tile);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: var(--chip);
+}
+.ins-checkout-outcome.ok .ins-checkout-outcome-icon {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+.ins-checkout-outcome-body {
+  flex: 1;
+  min-width: 0;
+}
+.ins-checkout-outcome-body b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 14.5px;
+}
+.ins-checkout-outcome-body p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.ins-checkout-outcome-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.ins-checkout-outcome-close:hover {
+  background: var(--chip);
+  color: var(--text);
 }

@@ -915,3 +915,59 @@ onboarding (also confirmed working, per the live-Stripe incident above). Not yet
 verified with a real test-mode payment end to end — this session still can't exercise Stripe or
 Postgres directly; that verification needs someone with real network access to actually run a
 checkout and check the `payments` table.
+
+### Checkout dialog fixed, fee disclosure + success/cancelled page added (2026-09-27)
+
+The user flagged the checkout dialog as "too transparent." Root cause was two compounding things,
+not one: `.ins-panel`'s own background is only a ~3-4% tint meant to sit over the near-solid page
+background with a `backdrop-filter` blur doing the rest of the obscuring — fine for an ordinary
+in-page panel, but this dialog stacks on top of *other* panels (the offer card behind it), and
+that blur isn't reliably rendered everywhere (a headless-browser screenshot showed it flat,
+un-blurred). Separately, the dialog carried two conflicting `animation` declarations on the same
+element — its own 0.25s entrance plus the unrelated `.ins-in` class's 0.7s one (meant for staggered
+page-load reveals, not an on-demand modal) — both fading in from `opacity: 0`, so whichever won the
+cascade left it visibly translucent for up to 700ms. Fixed: `.ins-checkout-box`'s background is now
+fully opaque (`var(--bg)`, matching the page exactly, with the border/shadow doing the "raised
+surface" work instead of transparency), and `.ins-in` was dropped from the element so only the fast
+entrance remains.
+
+While in there, the user asked to close the two remaining gaps in Pari's own Sprint 3 spec that the
+checkout backend/dialog pass hadn't covered — the fee breakdown shown *before* paying, and a
+success/cancelled page after Stripe redirects back (both explicitly called out in
+`Workplan-Pari.md`'s Sprint 3, which the user re-shared this session).
+
+**Fee breakdown**: `lib/checkout.ts` gained `fetchCheckoutQuote(offerId)`, calling the
+already-existing `GET /api/checkout/quote` (built during the checkout-backend pass, just never
+wired into any UI). `CheckoutDialog` fetches it on mount and renders a base/service-fee/total
+breakdown above the email field (subscription offers get a "Total/mo" suffix) — never computed
+client-side, per the standing "never compute fees in the browser" rule. A failed fetch falls back
+to a plain "$X + a service fee, shown at checkout" line rather than blocking the dialog or
+fabricating a number; the checkout button still works either way, since Stripe's own Checkout page
+shows the authoritative total regardless of what this preview says.
+
+**Success/cancelled page**: `createCheckoutSession`'s `successUrl`/`cancelUrl` already defaulted to
+`/<handle>?checkout=success` / `?checkout=cancelled`, but nothing read that query param.
+`app/(public)/[handle]/page.tsx` now reads `searchParams`, and `PublicStorefrontView` renders the
+new `components/CheckoutOutcomeBanner.tsx` above the profile — a checkmark card ("Payment
+received... check your email for a receipt") or a neutral one ("Checkout cancelled, you weren't
+charged"). It's a client component only so its dismiss button can clear the query param
+(`router.replace(pathname)`) — otherwise a refresh would keep re-showing it forever. Not wired into
+`OwnerPreview`: an unpublished page can't actually receive a real checkout redirect, since
+`POST /api/checkout` requires `coach.published`.
+
+No new receipt-details plumbing (a `GET /api/checkout/session/:id` to show the exact amount/email
+on the success page) — the workplan's "receipt email copy" is Stripe's own automatic receipt
+email, not something this page needs to duplicate; the on-site copy just tells the client to check
+their inbox. Revisit if a richer on-site confirmation turns out to matter more than judged here.
+
+Verified in a real dev server (Playwright, same temporary-unlinked-preview-page technique as the
+earlier checkout-dialog pass, deleted before finishing): the dialog settling fully opaque well
+within its now-0.25s entrance, one-time and subscription fee breakdowns, the quote-fetch-failure
+fallback, both outcome banners, and the dismiss button actually clearing the query param via a real
+navigation. Screenshots taken, not just asserted. `tsc`/`eslint`/`npm test` (39 suites, 343
+tests)/`npm run build` all clean.
+
+**Still not done**: no client-facing login yet (Sprint 4 of `Workplan-Pari.md` — magic-link
+"My subscription" self-serve, pause flow, dunning) — deliberately sequenced after these two Sprint 3
+gaps, since Sprint 4's own subscription-management screens need a completed checkout to have
+anything real to manage. Recommended as the next piece of work; not started.

@@ -1,4 +1,4 @@
-import { createCheckoutSessionApi } from './checkout';
+import { createCheckoutSessionApi, fetchCheckoutQuote } from './checkout';
 
 const originalFetch = global.fetch;
 
@@ -9,6 +9,48 @@ afterEach(() => {
 function mockFetch(body: unknown) {
   global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve(body) }) as typeof fetch;
 }
+
+describe('fetchCheckoutQuote', () => {
+  it('requests the offer by id and returns the breakdown on success', async () => {
+    mockFetch({
+      success: true,
+      message: 'Quote computed.',
+      data: {
+        offer: { id: 'offer-1' },
+        breakdown: { currency: 'usd', baseAmountCents: 10000, serviceFeeCents: 300, totalAmountCents: 10300 },
+      },
+    });
+
+    const result = await fetchCheckoutQuote('offer-1');
+
+    expect(global.fetch).toHaveBeenCalledWith('/api/checkout/quote?offerId=offer-1', expect.objectContaining({ method: 'GET' }));
+    expect(result).toEqual({
+      ok: true,
+      breakdown: { currency: 'usd', baseAmountCents: 10000, serviceFeeCents: 300, totalAmountCents: 10300 },
+    });
+  });
+
+  it('URL-encodes the offer id', async () => {
+    mockFetch({ success: false, code: 'NOT_FOUND', message: 'This offer is not available.' });
+    await fetchCheckoutQuote('offer with spaces');
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/checkout/quote?offerId=offer%20with%20spaces',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('returns a plain failure when the offer is not found', async () => {
+    mockFetch({ success: false, code: 'NOT_FOUND', message: 'This offer is not available.' });
+    const result = await fetchCheckoutQuote('offer-1');
+    expect(result).toEqual({ ok: false, message: 'This offer is not available.' });
+  });
+
+  it('never throws when fetch itself rejects', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new TypeError('Failed to fetch')) as typeof fetch;
+    const result = await fetchCheckoutQuote('offer-1');
+    expect(result).toEqual({ ok: false, message: 'Something went wrong. Please try again.' });
+  });
+});
 
 describe('createCheckoutSessionApi', () => {
   it('posts offerId/clientEmail and returns the checkoutUrl on success', async () => {

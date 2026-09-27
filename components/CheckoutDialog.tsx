@@ -3,23 +3,40 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Icon } from '@/lib/icons';
 import { TextField } from '@/components/AuthFields';
-import { createCheckoutSessionApi } from '@/lib/checkout';
-import { formatOfferPrice } from '@/lib/offers';
+import { createCheckoutSessionApi, fetchCheckoutQuote } from '@/lib/checkout';
+import { formatMoney, formatOfferPrice } from '@/lib/offers';
 import { offerCta } from '@/components/OfferCard';
-import type { OfferSummary } from '@/lib/commerce/types';
+import type { BillingInterval, MoneyBreakdown, OfferSummary } from '@/lib/commerce/types';
 import { useAppState } from '@/lib/store';
 
+const INTERVAL_SUFFIX: Record<BillingInterval, string> = { week: '/wk', month: '/mo', year: '/yr' };
+
 /**
- * The one screen between a public storefront offer button and Stripe-hosted Checkout: just
- * collects the client's email (POST /api/checkout needs it; Stripe itself collects card details
- * on its own page). On success this navigates away from the app entirely to the Checkout URL, so
- * there's no client-router state to worry about resetting afterward.
+ * The one screen between a public storefront offer button and Stripe-hosted Checkout: shows the
+ * fee breakdown before pay (Sprint 3's own disclosure requirement) and collects the client's
+ * email (POST /api/checkout needs it; Stripe itself collects card details on its own page). On
+ * success this navigates away from the app entirely to the Checkout URL, so there's no
+ * client-router state to worry about resetting afterward.
  */
 export function CheckoutDialog({ offer, onClose }: { offer: OfferSummary; onClose: () => void }) {
   const { toast } = useAppState();
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
+  const [quote, setQuote] = useState<MoneyBreakdown | null>(null);
+  const [quoteFailed, setQuoteFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCheckoutQuote(offer.id).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setQuote(result.breakdown);
+      else setQuoteFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [offer.id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -63,7 +80,27 @@ export function CheckoutDialog({ offer, onClose }: { offer: OfferSummary; onClos
 
         <span className="ins-label">{offerCta(offer.type)}</span>
         <h2 id="checkout-dialog-title">{offer.name}</h2>
-        <p className="ins-checkout-price ins-num">{formatOfferPrice(offer)}</p>
+
+        {quote ? (
+          <div className="ins-checkout-breakdown ins-num" aria-live="polite">
+            <div className="ins-checkout-row">
+              <span>{offer.name}</span>
+              <span>{formatMoney(quote.baseAmountCents)}</span>
+            </div>
+            <div className="ins-checkout-row muted">
+              <span>Service fee</span>
+              <span>{formatMoney(quote.serviceFeeCents)}</span>
+            </div>
+            <div className="ins-checkout-row total">
+              <span>Total{offer.type === 'subscription' && offer.price.interval ? INTERVAL_SUFFIX[offer.price.interval] : ''}</span>
+              <span>{formatMoney(quote.totalAmountCents)}</span>
+            </div>
+          </div>
+        ) : quoteFailed ? (
+          <p className="ins-checkout-price ins-num">{formatOfferPrice(offer)} + a service fee, shown at checkout</p>
+        ) : (
+          <p className="ins-checkout-price">Calculating price…</p>
+        )}
 
         <form onSubmit={onSubmit} noValidate className="ins-auth-form">
           <TextField
