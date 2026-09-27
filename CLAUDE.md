@@ -871,3 +871,21 @@ every other component in this repo (`SignupForm`, `LoginForm`, `TopBar`, `Sideba
 component-rendering tests still need jsdom + React Testing Library, a setup this repo hasn't added
 (see "Testing (Jest)" above). `lib/checkout.ts` (the testable, non-component logic) has its own
 test file, per the standing rule.
+
+### Pushed to `main` and deployed (2026-09-27)
+
+Manvendra asked directly ("push the current version to main and deploy"). `feat/commerce-checkout`
+was a clean fast-forward of `main` (no divergence — same pattern noted in the Sprint-1 process-audit
+entry above, `main` is the de facto merge target for Commerce branches), pushed straight, no PR.
+Push auto-triggered a Vercel production build (commit `c9b9d48`); confirmed `READY` and aliased to
+`instar-fit.vercel.app` via `get_deployment`. No new env vars needed this time (no schema change,
+no new required config), so — unlike every earlier deploy in this file — there was no
+build-finished-before-env-vars-existed redeploy needed.
+
+**Still not live in the sense that matters**: `STRIPE_WEBHOOK_SECRET` isn't set in Vercel and no
+webhook endpoint is registered in Stripe's Dashboard (flagged when Sprint 3 was built, unchanged
+by this deploy) — so a real checkout completed against production today would create the Stripe
+Checkout Session fine, but nothing would write the `clients`/`subscriptions`/`payments` rows
+afterward, since the webhook that does that never reaches this app. Registering that endpoint +
+secret is the next thing standing between "the routes exist" and "a payment actually lands in
+Postgres," which is Sprint 3's own done-when bar.
