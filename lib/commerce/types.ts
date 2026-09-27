@@ -192,3 +192,22 @@ export interface StorefrontStatus {
 export interface UpdateStorefrontRequest {
   published: boolean;
 }
+
+/**
+ * Client self-serve auth (Sprint 4). Deliberately scoped to one coach relationship, not a
+ * cross-coach client identity — a client who's bought from two coaches logs into each
+ * separately. Revisit only if a unified client account becomes an explicit requirement.
+ */
+
+/** POST /api/client/login/request request body. */
+export interface ClientLoginRequest {
+  /** The coach's handle — a client logs into one specific coach relationship, not a global account. */
+  handle: string;
+  email: string;
+}
+
+/** GET /api/client/me. */
+export interface ClientMeResponse {
+  client: { email: string; name: string | null };
+  coach: { handle: string; displayName: string };
+}

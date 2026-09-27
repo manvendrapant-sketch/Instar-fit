@@ -1029,3 +1029,78 @@ prior sessions — with `/api/offers`, `/api/coach/profile`, `/api/coach/onboard
 `/api/storefront` all mocked with an artificial 2s delay so the loading state has time to render):
 screenshots confirm all five spots now show their title immediately plus a spinner and label
 instead of a blank gap. `tsc`/`eslint`/`npm test` (39 suites, 343 tests)/`npm run build` all clean.
+
+## Sprint 4 (partial): client magic-link login (2026-09-27)
+
+The offer-checkout 500 the user hit turned out to be a data problem, not a code bug: that specific
+offer's `stripeProductId`/`stripePriceId` were created before the switch to the Instar Sandbox
+Stripe environment, so its Stripe objects simply don't exist under the key now configured — same
+class of orphaned-cross-environment issue already documented for offer edits. Fix was
+delete-and-recreate the offer (a new one calls `createStripeProductAndPrice` fresh, under whatever
+key is current); no code change, flagged so any other pre-rotation offer gets the same treatment
+before someone tries to buy it.
+
+Asked what's next, recommended Sprint 4 (`Workplan-Pari.md`) — client self-serve billing — since
+it's the first thing needing real subscriptions to manage, which now exist. Its first bullet names
+its mechanism explicitly: "Client 'My subscription' page (**magic-link login**)". Talked through
+two open questions before building: whether a client with purchases from multiple coaches should
+see one unified dashboard (not mentioned in the workplan — **explicitly decided against it**, kept
+to today's per-coach `clients` model) and how the link actually reaches a client "anytime" (a
+request-a-fresh-link-each-time flow, not a single one-time post-checkout email). See `Decisions.md`
+for the full reasoning on both, plus why magic-link beats a "normal" password login for clients
+(a password login still needs a magic-link-shaped bootstrap step to prove email ownership first, so
+it adds a second auth mechanism on top rather than replacing one).
+
+**New — schema**: `client_login_tokens` (migration `0005_square_bastion.sql` — same
+unconfirmed/unapplied situation as every migration since 0000; handed off the same way, this
+sandbox still has no Postgres access). Stores `sha256(token)`, never the raw token; 15-minute
+expiry; `usedAt` enforced single-use via an atomic `UPDATE ... WHERE usedAt IS NULL RETURNING`.
+
+**New — auth**: `lib/auth/clientToken.ts` (generate/hash), `lib/auth/clientSession.ts` (a second,
+separate JWT session — `instar_client_session` cookie, its own `CLIENT_SESSION_JWT_SECRET`,
+deliberately not shared with the coach session's `AUTH_JWT_SECRET` — coaches and clients are
+different trust domains), `lib/auth/require-client.ts` (mirrors `require-coach.ts`).
+
+**New — email**: this app had no email-sending capability at all before this. Manvendra chose
+Resend when asked directly. `lib/email/resend.ts` (lazy client, same gotcha as `getStripe()`/
+`getDb()` — must never construct at module scope), `lib/email/send.ts` (`sendMagicLinkEmail`, the
+one function that sends this one email). New env vars: `RESEND_API_KEY`, `EMAIL_FROM` (defaults to
+Resend's sandbox sender, which only delivers to the account owner until a domain is verified),
+`CLIENT_SESSION_JWT_SECRET`. None of these are set in Vercel yet, nor is `RESEND_API_KEY` in this
+sandbox's `.env.local` — no real email has been sent by this pass, only unit-tested with `getResend`
+mocked (this sandbox also still can't reach most external APIs directly to test live anyway).
+
+**New — routes**: `POST /api/client/login/request` (always returns the same generic success
+message whether or not the email matched an account — no enumeration of who's bought from a given
+coach), `GET /api/client/login/verify?token=` (what the emailed link points to — verifies, marks
+the token used, sets the session cookie, redirects to `/<handle>/account`; a GET, not a POST, since
+it's meant to be opened directly from an email client), `POST /api/client/logout`,
+`GET /api/client/me`.
+
+**New — frontend**: `/<handle>/account/login` (server page + `components/ClientLoginForm.tsx` —
+email in, "check your email" confirmation out, mirrors `SignupForm`'s done-card pattern) and
+`/<handle>/account` (server page, gates on the client session **and** that its `coachHandle`
+matches the URL's handle — a session valid for a different coach relationship redirects to login,
+not to someone else's account; `components/ClientAccountView.tsx` for now just proves the loop
+works — "logged in as X, working with Y" + a logout button, not yet the actual subscription
+details/card update/cancel/pause, which is the rest of Sprint 4).
+
+**Deliberate exception to "pages fetch through an API route"**: both new pages query `getDb()`
+directly rather than calling an API route, because `GET /api/coach/[handle]` (the existing public
+endpoint) is gated by `coaches.published`, and a client who bought before their coach unpublished
+still needs to log in — reusing that endpoint would incorrectly lock them out. Simpler than adding
+a second, near-identical coach-lookup endpoint.
+
+**Verified**: `tsc`/`eslint`/`npm test` (49 suites, 388 tests)/`npm run build` (all six lazy-client
+env vars unset) all clean. Playwright, real dev server: the login-request form's submit → "check
+your email" confirmation (mocked API response), and the account page's redirect guard — both with
+no session cookie, and with a hand-crafted valid client-session cookie for a *different* coach's
+handle than the URL — both correctly bounce to that coach's own login page rather than leaking
+access or erroring. Screenshots taken. Could not verify: an actual magic-link email being sent and
+clicked (needs `RESEND_API_KEY` + a database), or the account page's real data-loaded path (needs
+Postgres) — same standing sandbox limitations as everywhere else in this file.
+
+**Not done — the rest of Sprint 4**: subscription details (plan, next charge), update card, cancel,
+the pause flow (vacation/injury/other + resume date), failed-payment screens + dunning nudge
+emails, and the coach-side view of active/paused/past-due clients. This pass is the auth mechanism
+only, per what was explicitly asked for.

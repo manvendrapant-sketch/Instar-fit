@@ -279,3 +279,24 @@ export const webhookEvents = pgTable(
   },
   (t) => [uniqueIndex('webhook_events_stripe_id_idx').on(t.stripeEventId)],
 ).enableRLS();
+
+// A client's magic-link login request. `tokenHash` (sha256 of the random token — never the raw
+// token itself) is what's stored, so a DB leak alone can't be used to log in as a client; the raw
+// token only ever exists in the emailed link and briefly in memory while verifying it. Single-use
+// (`usedAt`) and short-lived (`expiresAt`, ~15 min) by design — a client requests a fresh one every
+// time they want in, never a standing reusable link. Scoped to one `clients` row (one coach
+// relationship), matching this app's current per-coach client model — not a cross-coach identity.
+export const clientLoginTokens = pgTable(
+  'client_login_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('client_login_tokens_hash_idx').on(t.tokenHash)],
+).enableRLS();

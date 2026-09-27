@@ -5,6 +5,62 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-27 — Client magic-link login (Sprint 4, backend + minimal frontend)
+
+Manvendra asked what's next after Sprint 3 closed; Sprint 4 of `Workplan-Pari.md` is client
+self-serve billing, whose first bullet names its own mechanism explicitly: *"Client 'My
+subscription' page (magic-link login)"* — not left to interpretation, so this wasn't a design
+choice made here, just followed.
+
+**Scoped to one coach relationship, not a cross-coach client identity.** Manvendra asked whether a
+client who's bought from multiple coaches should see one unified dashboard, then explicitly decided
+against building that now: the workplan doesn't mention it, so it isn't built. Today's `clients`
+rows are still keyed `(coachId, email)` with no identity above that; a client with purchases from
+two coaches logs into each separately, at `/<their-coach's-handle>/account`. Revisit only if a
+unified client account becomes an explicit requirement — retrofitting it later means migrating
+every existing `clients`/`subscriptions`/`payments` row onto a new identity table, so this is a
+deliberate scope call, not an oversight.
+
+**Magic link, not password, and here's why "just add normal login" doesn't actually save work**:
+any password-based login still needs to prove the client owns their email before they can set one
+— since no client has ever set a password, that first step is itself a magic-link-shaped email
+verification. So "normal login" would mean building a magic link *and* a password on top of it, for
+worse UX (one more thing to remember) on a page most clients open once a billing cycle. Rejected.
+
+**Single-use, short-lived tokens, stored hashed — not a bare JWT link.** Unlike the coach session
+(a self-contained signed JWT, no DB row, chosen in the original login/signup pass for simplicity),
+a login *link* needed to be revocable the instant it's clicked: `client_login_tokens` stores only
+`sha256(token)` (a DB leak alone can't be used to log in), expires in 15 minutes, and is marked
+`usedAt` atomically on redemption (`UPDATE ... WHERE usedAt IS NULL RETURNING ...` — if that returns
+no rows, something already consumed it, including two near-simultaneous clicks on the same link).
+Rejected: a stateless JWT link like the coach session uses, which can't be invalidated early and
+has no natural single-use guarantee.
+
+**Once redeemed, the client gets a real session** — `instar_client_session`, a JWT again, but
+signed with its own `CLIENT_SESSION_JWT_SECRET`, deliberately separate from `AUTH_JWT_SECRET`.
+Coaches and clients are different trust domains (a coach can see every client across their whole
+business; a client can only ever see their own one relationship with one coach) — a future bug that
+confused the two token families should be structurally impossible, not just unlikely, so they don't
+share a signing key even though nothing currently would misuse it. 30-day cookie lifetime (clients
+check in occasionally, not daily like a coach) — a fresh login link is still needed to establish it.
+
+**Email sending: Resend, chosen by Manvendra directly when asked** (this app had zero
+email-sending capability before this — no receipt/dunning email infra existed either). Lazy client
+(`lib/email/resend.ts`), same gotcha as every other external client in this app (`getStripe()`,
+`getDb()`) — must not construct at module scope or `next build` fails whenever the key is unset.
+`sendMagicLinkEmail` is the one function that sends this one email; a future receipt or dunning
+email is a separate function, not a parameter bolted onto this one.
+
+**The login-request and account pages query the DB directly from the page component** — the one
+deliberate exception to this app's usual "pages fetch through an API route" convention (see
+`CLAUDE.md`). `GET /api/coach/[handle]` (the public storefront endpoint) is gated by
+`coaches.published`, but a client who bought before their coach unpublished still needs to log in
+and see their own subscription — reusing that endpoint would incorrectly block them. A direct,
+try/caught `getDb()` call was simpler than adding a second coach-lookup endpoint whose only
+difference is "don't check `published`."
+
+---
+
 ## 2026-09-27 — Stripe webhook endpoint registered, Sprint 3 closed out
 
 Manvendra asked to close off the one remaining gap in Sprint 3. This session's sandbox has no path
