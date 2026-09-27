@@ -1284,3 +1284,39 @@ check them itself) are: whether `checkout.session.completed` actually fired for 
 purchase (Stripe Dashboard → Developers → Webhooks → the endpoint → Events, look for that specific
 delivery and its response code), and whether it 200'd or errored. Not fixed yet — needs that answer
 before writing any code, since guessing at a fix here risks patching the wrong thing.
+
+### One-time purchases surfaced on both the client and coach pages (2026-09-27)
+
+Confirmed: the new offer was a program (`one_time` type), not another subscription — so the
+hypothesis above was right, and it wasn't a bug so much as a real product gap: a coach should be
+able to see every client who's ever paid them, not just the ones on a recurring plan. Manvendra
+asked for both sides fixed rather than just documenting the scope limit.
+
+**Shared types** (`lib/commerce/types.ts`): `ClientPurchaseSummary` (added to
+`ClientSubscriptionsResponse.purchases`) and `CoachPurchaseSummary` (added to
+`CoachClientsResponse.purchases`) — both intentionally minimal (offer name, amount, currency,
+purchase date, an id for a stable React key) since a one-time purchase has no ongoing state:
+no status, no pause/cancel, no next-charge date, because nothing about it recurs.
+
+**New `lib/commerce/purchases.ts`**: `toClientPurchaseSummary`/`toCoachPurchaseSummary`, the row →
+API-shape mappers, mirroring `lib/commerce/subscriptions.ts`'s equivalents.
+
+**Both `GET /api/client/subscriptions` and `GET /api/coach/clients`** now run a second query in
+parallel (`Promise.all`) against `payments`, filtered to `subscriptionId IS NULL` (a subscription's
+own billing-cycle payments — written by `handleInvoicePaid` — always have one set; only a one-time
+`payment_intent.succeeded` payment doesn't) and `status = 'succeeded'`. No new migration — every
+column already existed; this was purely a query the two routes never ran.
+
+**Frontend**: `ClientAccountView` gained a `PurchaseCard` (offer name, amount, purchase date — no
+actions) rendered below any subscription cards; the "nothing here yet" empty state now only shows
+when both `subscriptions` and `purchases` are empty. `ClientsPage` gained a second "Programs &
+sessions" table below the existing subscriptions table, same idea. Both `lib/coachClients.ts` and
+`lib/clientSubscriptions.ts`'s fetch wrappers were extended to return the new `purchases` array
+from the same response (no new endpoint) rather than adding a second fetch to manage.
+
+**Verified**: `tsc`, `eslint`, `npm test` (59 suites, 469 tests), `npm run build` all clean.
+Playwright, real dev server (same temporary-preview-page technique as every prior UI pass in this
+file, deleted before finishing): confirmed a canceled subscription plus a program purchase render
+together, a purchase-only client (no subscriptions at all) renders correctly with no stray empty
+state, and the coach's two-table view (one subscription, one program purchase, different clients)
+renders both sections independently.

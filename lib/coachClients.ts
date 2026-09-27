@@ -1,5 +1,5 @@
 import { apiFetch } from './api-client';
-import type { CoachClientSummary, SubscriptionStatus } from './commerce/types';
+import type { CoachClientSummary, CoachPurchaseSummary, SubscriptionStatus } from './commerce/types';
 
 export const CLIENTS_PATH = '/business/clients';
 
@@ -12,8 +12,10 @@ export const STATUS_LABEL: Record<SubscriptionStatus, { label: string; chip: str
   canceled: { label: 'Canceled', chip: '' },
 };
 
-export async function fetchCoachClients(): Promise<{ ok: true; clients: CoachClientSummary[] } | { ok: false; message: string }> {
-  const result = await apiFetch<{ clients: CoachClientSummary[] }>('/api/coach/clients');
-  if (result.success) return { ok: true, clients: result.data.clients };
+export async function fetchCoachClients(): Promise<
+  { ok: true; clients: CoachClientSummary[]; purchases: CoachPurchaseSummary[] } | { ok: false; message: string }
+> {
+  const result = await apiFetch<{ clients: CoachClientSummary[]; purchases: CoachPurchaseSummary[] }>('/api/coach/clients');
+  if (result.success) return { ok: true, clients: result.data.clients, purchases: result.data.purchases };
   return { ok: false, message: result.message };
 }

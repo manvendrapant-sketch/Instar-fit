@@ -1,6 +1,6 @@
 import { apiFetch } from './api-client';
 import { formatMoney } from './offers';
-import type { ClientSubscriptionSummary, PauseReason, PauseSubscriptionRequest } from './commerce/types';
+import type { ClientPurchaseSummary, ClientSubscriptionSummary, PauseReason, PauseSubscriptionRequest } from './commerce/types';
 
 const INTERVAL_SUFFIX: Record<string, string> = { week: '/wk', month: '/mo', year: '/yr' };
 
@@ -17,12 +17,14 @@ export const PAUSE_REASON_LABEL: Record<PauseReason, string> = {
 };
 
 export type ClientSubscriptionsResult =
-  | { ok: true; subscriptions: ClientSubscriptionSummary[] }
+  | { ok: true; subscriptions: ClientSubscriptionSummary[]; purchases: ClientPurchaseSummary[] }
   | { ok: false; message: string };
 
 export async function fetchClientSubscriptions(): Promise<ClientSubscriptionsResult> {
-  const result = await apiFetch<{ subscriptions: ClientSubscriptionSummary[] }>('/api/client/subscriptions');
-  if (result.success) return { ok: true, subscriptions: result.data.subscriptions };
+  const result = await apiFetch<{ subscriptions: ClientSubscriptionSummary[]; purchases: ClientPurchaseSummary[] }>(
+    '/api/client/subscriptions',
+  );
+  if (result.success) return { ok: true, subscriptions: result.data.subscriptions, purchases: result.data.purchases };
   return { ok: false, message: result.message };
 }
 

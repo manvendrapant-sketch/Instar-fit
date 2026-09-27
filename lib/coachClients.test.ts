@@ -18,10 +18,14 @@ describe('fetchCoachClients', () => {
     global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve(body) }) as typeof fetch;
   }
 
-  it('returns ok:true with the clients list on success', async () => {
-    mockFetchOnce({ success: true, message: 'Loaded.', data: { clients: [{ clientId: 'client-1' }] } });
+  it('returns ok:true with the clients and purchases lists on success', async () => {
+    mockFetchOnce({
+      success: true,
+      message: 'Loaded.',
+      data: { clients: [{ clientId: 'client-1' }], purchases: [{ id: 'pay-1' }] },
+    });
     const result = await fetchCoachClients();
-    expect(result).toEqual({ ok: true, clients: [{ clientId: 'client-1' }] });
+    expect(result).toEqual({ ok: true, clients: [{ clientId: 'client-1' }], purchases: [{ id: 'pay-1' }] });
     expect(global.fetch).toHaveBeenCalledWith('/api/coach/clients', { method: 'GET', headers: undefined, body: undefined });
   });
 

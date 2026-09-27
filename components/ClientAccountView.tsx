@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '@/lib/icons';
 import { clientLogout } from '@/lib/clientAuth';
+import { formatMoney } from '@/lib/offers';
 import {
   cancelSubscriptionApi,
   fetchClientSubscriptions,
@@ -13,7 +14,7 @@ import {
   resumeSubscriptionApi,
   type PauseFieldErrors,
 } from '@/lib/clientSubscriptions';
-import type { ClientSubscriptionSummary, PauseReason } from '@/lib/commerce/types';
+import type { ClientPurchaseSummary, ClientSubscriptionSummary, PauseReason } from '@/lib/commerce/types';
 import { useAppState } from '@/lib/store';
 import { LoadingSection } from '@/components/LoadingSection';
 
@@ -237,6 +238,22 @@ function SubscriptionCard({
   );
 }
 
+/** A one-time (program/session) purchase — a receipt, not something to manage: no status, no
+ * pause/cancel/update-card, since nothing about it recurs. */
+function PurchaseCard({ purchase }: { purchase: ClientPurchaseSummary }) {
+  return (
+    <section className="ins-panel ins-client-sub-card" aria-label={purchase.offerName}>
+      <div className="ins-client-sub-head">
+        <div>
+          <h3>{purchase.offerName}</h3>
+          <span className="ins-num">{formatMoney(purchase.amountCents)}</span>
+        </div>
+      </div>
+      <p className="ins-field-hint">Purchased {formatDate(purchase.purchasedAt)}</p>
+    </section>
+  );
+}
+
 /**
  * The client's "My subscription" page: plan, next charge, update card, pause (shown before
  * cancel, per the workplan), cancel, and a failed-payment banner. Subscriptions load from
@@ -254,13 +271,18 @@ export function ClientAccountView({
 }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [subscriptions, setSubscriptions] = useState<ClientSubscriptionSummary[] | null>(null);
+  const [purchases, setPurchases] = useState<ClientPurchaseSummary[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoadError(null);
     fetchClientSubscriptions().then((result) => {
-      if (result.ok) setSubscriptions(result.subscriptions);
-      else setLoadError(result.message);
+      if (result.ok) {
+        setSubscriptions(result.subscriptions);
+        setPurchases(result.purchases);
+      } else {
+        setLoadError(result.message);
+      }
     });
   }, []);
 
@@ -306,15 +328,17 @@ export function ClientAccountView({
         </section>
       )}
 
-      {subscriptions !== null && subscriptions.length === 0 && (
+      {subscriptions !== null && purchases !== null && subscriptions.length === 0 && purchases.length === 0 && (
         <section className="ins-panel ins-offers-missing ins-in">
-          <h2>No subscription yet</h2>
-          <p>You don&rsquo;t have an active subscription with {coachDisplayName}.</p>
+          <h2>Nothing here yet</h2>
+          <p>You don&rsquo;t have a subscription or purchase with {coachDisplayName}.</p>
         </section>
       )}
 
       {subscriptions !== null &&
         subscriptions.map((s) => <SubscriptionCard key={s.id} subscription={s} onUpdated={onUpdated} />)}
+
+      {purchases !== null && purchases.map((p) => <PurchaseCard key={p.id} purchase={p} />)}
     </>
   );
 }

@@ -234,8 +234,21 @@ export interface ClientSubscriptionSummary {
   pauseReason: PauseReason | null;
 }
 
+/**
+ * One row in GET /api/client/subscriptions' `purchases` — a one-time (program/session) purchase.
+ * Has no ongoing status to manage: no pause, cancel, or next-charge date, since nothing recurs.
+ */
+export interface ClientPurchaseSummary {
+  id: string;
+  offerName: string;
+  currency: string;
+  amountCents: number;
+  purchasedAt: string;
+}
+
 export interface ClientSubscriptionsResponse {
   subscriptions: ClientSubscriptionSummary[];
+  purchases: ClientPurchaseSummary[];
 }
 
 /** POST /api/client/subscriptions/[id]/pause request body. */
@@ -264,6 +277,20 @@ export interface CoachClientSummary {
   pauseReason: PauseReason | null;
 }
 
+/** One row in GET /api/coach/clients' `purchases` — a one-time purchase, listed separately from
+ * `clients` (subscriptions only) since it has no status/pause/resume state to show. */
+export interface CoachPurchaseSummary {
+  id: string;
+  clientId: string;
+  clientEmail: string;
+  clientName: string | null;
+  offerName: string;
+  currency: string;
+  amountCents: number;
+  purchasedAt: string;
+}
+
 export interface CoachClientsResponse {
   clients: CoachClientSummary[];
+  purchases: CoachPurchaseSummary[];
 }

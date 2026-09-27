@@ -37,10 +37,14 @@ describe('fetch wrappers', () => {
     global.fetch = jest.fn().mockResolvedValue({ json: () => Promise.resolve(body) }) as typeof fetch;
   }
 
-  it('fetchClientSubscriptions() returns ok:true with the list on success', async () => {
-    mockFetchOnce({ success: true, message: 'ok', data: { subscriptions: [{ id: 'sub-1' }] } });
+  it('fetchClientSubscriptions() returns ok:true with the subscriptions and purchases lists on success', async () => {
+    mockFetchOnce({
+      success: true,
+      message: 'ok',
+      data: { subscriptions: [{ id: 'sub-1' }], purchases: [{ id: 'pay-1' }] },
+    });
     const result = await fetchClientSubscriptions();
-    expect(result).toEqual({ ok: true, subscriptions: [{ id: 'sub-1' }] });
+    expect(result).toEqual({ ok: true, subscriptions: [{ id: 'sub-1' }], purchases: [{ id: 'pay-1' }] });
   });
 
   it('fetchClientSubscriptions() returns ok:false with the backend message on failure', async () => {
