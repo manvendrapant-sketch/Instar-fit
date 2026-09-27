@@ -1104,3 +1104,24 @@ Postgres) — same standing sandbox limitations as everywhere else in this file.
 the pause flow (vacation/injury/other + resume date), failed-payment screens + dunning nudge
 emails, and the coach-side view of active/paused/past-due clients. This pass is the auth mechanism
 only, per what was explicitly asked for.
+
+### Confirmed working live in production (2026-09-27)
+
+`RESEND_API_KEY` and `CLIENT_SESSION_JWT_SECRET` set in Vercel (redeployed to pick them up),
+migration `0005` applied, and a test client row inserted by hand in Supabase (coach's own email,
+since Resend's sandbox sender only delivers to the account's own address until a domain is
+verified). Manvendra then actually ran the flow on the live site and confirmed it end to end — the
+first feature in this entire file verified this way, rather than only unit-tested or checked with
+mocks: requested a link at `/manvendra-pant/account/login`, received the real email via Resend,
+clicked it, and landed on `/manvendra-pant/account` correctly showing the client's name and the
+coach's display name pulled from Postgres.
+
+One real limitation surfaced along the way, worth remembering: **the sandbox sender's
+"testing emails only go to your own address" restriction is a hard 403 from Resend's API**, not a
+soft one — and because `POST /api/client/login/request` deliberately always returns the same
+generic success message (so it can't be used to enumerate which emails have an account), that
+403 gets swallowed silently from the client's point of view. A real client whose email isn't the
+Resend account's own registered address will see "check your email" and then nothing ever arrives,
+with no visible error anywhere. **Verifying a sending domain in Resend is a hard requirement before
+any client other than the account owner can use this flow** — not an optional polish step. Not done
+yet; Manvendra hasn't picked a sending domain.
