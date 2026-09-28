@@ -1832,3 +1832,33 @@ every DB/Stripe operation in this file; Manvendra needs to run
 `DATABASE_URL=... STRIPE_SECRET_KEY=... npm run db:backfill-payment-ids` himself, from somewhere
 with real network access to both, pointed at whichever Stripe environment ("Instar Sandbox," per
 the environment-pairing rule elsewhere in this file) those specific payments were actually made in.
+
+**Confirmed fixed in production the same day**: Manvendra created a fresh Monthly Coaching
+subscription and was able to refund its payment successfully — the `invoicePayments.list` fix above
+works for new payments as designed, verified against the live site rather than only unit tests.
+
+### `DELETE /api/offers/[id]` 500s once an offer has real clients — the delete route's own comment was stale (2026-09-28)
+
+Manvendra reported deleting that same test offer (Monthly Coaching, now with a real subscriber and
+payment on it) 500ing. Root cause, found straight from the code: the route's own comment said "No
+payments/subscriptions can reference it yet (Sprint 1 has no checkout), so this is a safe hard
+delete" — true when it was written, false since Sprint 3 shipped checkout. Neither
+`subscriptions.offerId` nor `payments.offerId` has an `onDelete` rule, so Postgres rejects the
+delete outright (a `23503` foreign_key_violation) the moment any client has ever bought that offer
+— the route's generic catch turned that into a bare `INTERNAL_ERROR` 500 instead of anything
+actionable.
+
+**Fixed**: `DELETE /api/offers/[id]` now checks for an existing subscription or payment on the
+offer first and returns a clear `409 OFFER_IN_USE` ("This offer has clients or payments tied to it
+and can't be deleted. Turn it off instead.") — steering the coach toward `active: false` (the offer
+builder's existing hide-without-deleting toggle) rather than a delete that was always going to fail
+once real money has touched the offer. Also catches a `23503` in the `delete()` call itself as a
+belt-and-suspenders fallback, returning the same clear error instead of a bare 500 if some other
+reference this check didn't anticipate ever blocks it. `apiFetch`'s error envelope already surfaces
+`message` as a toast in `OfferEditor.tsx`'s existing delete handler, so no frontend change was
+needed for the coach to actually see this.
+
+Shipped with tests (`app/api/offers/[id]/route.test.ts`): the has-a-subscription case, the
+has-a-payment case, and the delete-itself-throws-23503 fallback case; the two pre-existing
+successful-delete tests were updated to reflect the new pre-delete check. Verified: `tsc --noEmit`,
+`eslint .`, `npm test` (79 suites, 650 tests), `npm run build` all clean.

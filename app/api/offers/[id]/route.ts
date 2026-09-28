@@ -102,6 +102,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
+/** Postgres foreign_key_violation is SQLSTATE 23503 — postgres-js surfaces it as `err.code`. */
+function isForeignKeyViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: unknown }).code === '23503';
+}
+
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireCoachSession();
   if (!session) return apiError('NOT_AUTHENTICATED', 'You are not logged in.', 401);
@@ -113,9 +118,27 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!offer) return apiError('NOT_FOUND', 'Offer not found.', 404);
 
     const db = getDb();
-    // Deletes the offer row; its prices cascade (prices.offerId has onDelete: 'cascade'). No
-    // payments/subscriptions can reference it yet (Sprint 1 has no checkout), so this is a safe
-    // hard delete for now rather than a soft one.
+
+    // Once Sprint 3's checkout shipped, both `subscriptions.offerId` and `payments.offerId` can
+    // reference this offer — a hard delete used to be safe (this comment used to say so, back
+    // when Sprint 1 had no checkout at all), but neither FK has an `onDelete` rule, so Postgres
+    // now rejects the delete outright once a real client has ever bought this offer. Check first
+    // and return a clear, actionable error instead of letting that surface as a bare 500 —
+    // deactivating (`active: false`, already how the offer builder hides an offer without
+    // deleting it) is the right move for an offer with real history, not deleting it.
+    const [hasSubscription, hasPayment] = await Promise.all([
+      db.query.subscriptions.findFirst({ where: (s, { eq: eqCol }) => eqCol(s.offerId, offer.id) }),
+      db.query.payments.findFirst({ where: (p, { eq: eqCol }) => eqCol(p.offerId, offer.id) }),
+    ]);
+    if (hasSubscription || hasPayment) {
+      return apiError(
+        'OFFER_IN_USE',
+        'This offer has clients or payments tied to it and can’t be deleted. Turn it off instead.',
+        409,
+      );
+    }
+
+    // Deletes the offer row; its prices cascade (prices.offerId has onDelete: 'cascade').
     await db.delete(offers).where(eq(offers.id, offer.id));
 
     // Best-effort Stripe hygiene — archiving the product isn't required for correctness (nothing
@@ -131,6 +154,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     return apiSuccess<{ id: string }>({ id: offer.id }, 'Offer deleted.');
   } catch (err) {
     console.error(`DELETE /api/offers/${id} failed:`, err);
+    // Belt-and-suspenders for the check above: if some other reference this route doesn't know
+    // about ever blocks the delete, still report it as an actionable conflict, not a generic 500.
+    if (isForeignKeyViolation(err)) {
+      return apiError('OFFER_IN_USE', 'This offer has clients or payments tied to it and can’t be deleted. Turn it off instead.', 409);
+    }
     return apiError('INTERNAL_ERROR', 'Something went wrong. Please try again.', 500);
   }
 }

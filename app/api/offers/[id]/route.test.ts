@@ -158,13 +158,21 @@ describe('DELETE /api/offers/[id]', () => {
     expect(res.status).toBe(404);
   });
 
+  function noUsageDb(overrides: { del?: jest.Mock } = {}) {
+    return {
+      query: {
+        offers: { findFirst: jest.fn().mockResolvedValue(OFFER) },
+        subscriptions: { findFirst: jest.fn().mockResolvedValue(undefined) },
+        payments: { findFirst: jest.fn().mockResolvedValue(undefined) },
+      },
+      delete: overrides.del ?? jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+    };
+  }
+
   it('deletes the offer and archives its Stripe product', async () => {
     (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
     const del = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
-    (getDb as jest.Mock).mockReturnValue({
-      query: { offers: { findFirst: jest.fn().mockResolvedValue(OFFER) } },
-      delete: del,
-    });
+    (getDb as jest.Mock).mockReturnValue(noUsageDb({ del }));
     const productsUpdate = jest.fn().mockResolvedValue({});
     (getStripe as jest.Mock).mockReturnValue({ products: { update: productsUpdate } });
 
@@ -178,14 +186,60 @@ describe('DELETE /api/offers/[id]', () => {
 
   it('still deletes the offer even if archiving the Stripe product fails', async () => {
     (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
-    const del = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
-    (getDb as jest.Mock).mockReturnValue({
-      query: { offers: { findFirst: jest.fn().mockResolvedValue(OFFER) } },
-      delete: del,
-    });
+    (getDb as jest.Mock).mockReturnValue(noUsageDb());
     (getStripe as jest.Mock).mockReturnValue({ products: { update: jest.fn().mockRejectedValue(new Error('down')) } });
 
     const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
     expect(res.status).toBe(200);
+  });
+
+  it('returns 409 OFFER_IN_USE instead of a bare 500 when a client has a subscription on this offer', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    const del = jest.fn();
+    (getDb as jest.Mock).mockReturnValue({
+      query: {
+        offers: { findFirst: jest.fn().mockResolvedValue(OFFER) },
+        subscriptions: { findFirst: jest.fn().mockResolvedValue({ id: 'sub-1' }) },
+        payments: { findFirst: jest.fn().mockResolvedValue(undefined) },
+      },
+      delete: del,
+    });
+
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: 'OFFER_IN_USE' });
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 OFFER_IN_USE when a payment (e.g. a one-time purchase) references this offer', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    const del = jest.fn();
+    (getDb as jest.Mock).mockReturnValue({
+      query: {
+        offers: { findFirst: jest.fn().mockResolvedValue(OFFER) },
+        subscriptions: { findFirst: jest.fn().mockResolvedValue(undefined) },
+        payments: { findFirst: jest.fn().mockResolvedValue({ id: 'pay-1' }) },
+      },
+      delete: del,
+    });
+
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: 'OFFER_IN_USE' });
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 OFFER_IN_USE (not a bare 500) if the delete itself hits a foreign key violation the check above missed', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    const fkError = Object.assign(new Error('violates foreign key constraint'), { code: '23503' });
+    const del = jest.fn().mockReturnValue({ where: jest.fn().mockRejectedValue(fkError) });
+    (getDb as jest.Mock).mockReturnValue(noUsageDb({ del }));
+
+    const res = await DELETE(deleteRequest(), { params: Promise.resolve({ id: 'offer-1' }) });
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: 'OFFER_IN_USE' });
   });
 });
