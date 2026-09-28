@@ -294,3 +294,159 @@ export interface CoachClientsResponse {
   clients: CoachClientSummary[];
   purchases: CoachPurchaseSummary[];
 }
+
+/**
+ * Sprint 5 — refunds, disputes, payouts. Balance and payout data come live from Stripe Connect,
+ * not Instar's own ledger (see Decisions.md) — these types describe what those live reads look
+ * like once shaped for the frontend, not a DB row.
+ */
+
+/** GET /api/coach/balance. `revenueThisMonthCents` is the one number Stripe itself doesn't track
+ * for us — it's summed from our own `payments` rows for the current calendar month. */
+export interface CoachBalanceResponse {
+  currency: string;
+  availableCents: number;
+  pendingCents: number;
+  revenueThisMonthCents: number;
+}
+
+export type PayoutInterval = 'daily' | 'weekly' | 'monthly' | 'manual';
+
+/** GET /api/coach/payout-schedule — part of the coach's Stripe Express account settings. */
+export interface PayoutScheduleResponse {
+  interval: PayoutInterval;
+  delayDays: number;
+}
+
+export type PayoutStatus = 'paid' | 'pending' | 'in_transit' | 'canceled' | 'failed';
+
+/** One row in GET /api/coach/payouts — read live from Stripe, not our `payouts` table. */
+export interface CoachPayoutSummary {
+  id: string;
+  currency: string;
+  amountCents: number;
+  status: PayoutStatus;
+  arrivalDate: string;
+  createdAt: string;
+}
+
+export interface CoachPayoutsResponse {
+  payouts: CoachPayoutSummary[];
+  /** True if Stripe has more payouts than this page returned (pagination isn't built yet — see CLAUDE.md). */
+  hasMore: boolean;
+}
+
+export type PaymentStatus = 'succeeded' | 'failed' | 'refunded' | 'partially_refunded' | 'disputed';
+
+/** One row in GET /api/coach/payments. */
+export interface CoachPaymentSummary {
+  id: string;
+  clientName: string | null;
+  clientEmail: string;
+  offerName: string;
+  currency: string;
+  totalAmountCents: number;
+  refundedAmountCents: number;
+  status: PaymentStatus;
+  createdAt: string;
+}
+
+export interface CoachPaymentsResponse {
+  payments: CoachPaymentSummary[];
+}
+
+/** GET /api/coach/payments/[id]/refund-quote?amountCents= — the refund confirmation's preview,
+ * computed the same way Stripe itself will split the real refund (see Decisions.md). */
+export interface RefundQuoteResponse {
+  currency: string;
+  /** What Stripe will actually let this refund be, capped at what hasn't been refunded already. */
+  maxRefundableCents: number;
+  /** What the client gets back on their card — always equal to the requested amount. */
+  clientReceivesCents: number;
+  /** Instar's platform fee reversed, proportional to the refund amount. */
+  platformFeeReversedCents: number;
+  /** How much less the coach's Stripe balance holds as a result of this refund. */
+  coachBalanceImpactCents: number;
+}
+
+/** POST /api/coach/payments/[id]/refund request body. */
+export interface RefundPaymentRequest {
+  amountCents: number;
+  reason?: string;
+}
+
+export type RefundStatus = 'pending' | 'succeeded' | 'failed';
+
+/** POST /api/coach/payments/[id]/refund response — the refund as Stripe reports it back
+ * immediately; the persistent `refunds` row itself is written by the `charge.refunded` webhook,
+ * same "webhook is the one writer of ledger rows" convention as every other payment in this app. */
+export interface RefundPaymentResponse {
+  id: string;
+  status: RefundStatus;
+  amountCents: number;
+}
+
+/**
+ * A curated subset of Stripe's ~25 dispute evidence fields — not all of them, to keep the coach
+ * form manageable for v1. File fields hold a Stripe file id (from POST .../files), not raw content.
+ */
+export interface DisputeEvidenceFields {
+  customerName: string | null;
+  customerEmailAddress: string | null;
+  customerPurchaseIp: string | null;
+  productDescription: string | null;
+  billingAddress: string | null;
+  refundPolicyDisclosure: string | null;
+  refundRefusalExplanation: string | null;
+  cancellationPolicyDisclosure: string | null;
+  cancellationRebuttal: string | null;
+  serviceDate: string | null;
+  uncategorizedText: string | null;
+  /** Stripe file id for the coach's communication with the client (email threads, etc.). */
+  customerCommunication: string | null;
+  /** Stripe file id for proof of service (a signed contract, work order, etc.). */
+  serviceDocumentation: string | null;
+  /** Stripe file id for anything that doesn't fit the categories above. */
+  uncategorizedFile: string | null;
+}
+
+/** One row in GET /api/coach/disputes. */
+export interface CoachDisputeSummary {
+  id: string;
+  paymentId: string;
+  clientName: string | null;
+  clientEmail: string;
+  offerName: string;
+  currency: string;
+  amountCents: number;
+  reason: string;
+  /** Mirrors Stripe's own dispute status strings verbatim (e.g. needs_response, under_review, won, lost). */
+  status: string;
+  evidenceDueBy: string | null;
+  createdAt: string;
+}
+
+export interface CoachDisputesResponse {
+  disputes: CoachDisputeSummary[];
+}
+
+/** GET /api/coach/disputes/[id] — the summary plus what's needed to actually respond. */
+export interface CoachDisputeDetailResponse extends CoachDisputeSummary {
+  evidence: DisputeEvidenceFields;
+  /** Which of `DisputeEvidenceFields`' keys are actually relevant for this dispute's reason code —
+   * a curated mapping (see lib/commerce/disputes.ts), not something Stripe's API returns directly. */
+  acceptedEvidenceFields: (keyof DisputeEvidenceFields)[];
+  /** How many times evidence has been submitted — Stripe normally only allows once. */
+  submissionCount: number;
+  /** True if the last submission landed after evidenceDueBy — delivery isn't guaranteed. */
+  pastDue: boolean;
+}
+
+/** PATCH (save draft) and POST (submit) /api/coach/disputes/[id]/evidence request body — every
+ * field optional, only the ones provided are updated (mirrors PATCH /api/offers/[id]'s pattern). */
+export type SaveDisputeEvidenceRequest = Partial<DisputeEvidenceFields>;
+
+/** POST /api/coach/disputes/[id]/files (multipart/form-data, field name "file") response. */
+export interface UploadEvidenceFileResponse {
+  fileId: string;
+}

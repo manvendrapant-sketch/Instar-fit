@@ -1320,3 +1320,115 @@ file, deleted before finishing): confirmed a canceled subscription plus a progra
 together, a purchase-only client (no subscriptions at all) renders correctly with no stray empty
 state, and the coach's two-table view (one subscription, one program purchase, different clients)
 renders both sections independently.
+
+## Sprint 5 — refunds, disputes, payouts (2026-09-28, branch continues on `main`)
+
+Manvendra shared a suggested API/type table for `Workplan-Manvendra.md`'s Sprint 5 ("Refunds,
+disputes, payouts") and asked to settle three open decisions, publish the shared types, then build
+in this order: balance + payouts + payments first, then refunds, then disputes. All three decisions
+were presented with a recommended default and Manvendra picked the recommendation each time — full
+rationale in `Decisions.md`'s "Sprint 5 decisions" entry:
+1. **Refund + platform fee**: refunded proportionally via Stripe's own `refund_application_fee:
+   true` (paired with the required `reverse_transfer: true` for a destination charge) — Stripe does
+   the proportional math itself.
+2. **Dispute evidence**: draft-and-submit, matching Stripe's own `disputes.update()` shape exactly
+   (`submit: false` to save a draft, `submit: true` to finalize — Stripe's own dispute object *is*
+   the draft, no local draft table).
+3. **Balance/payouts**: read live from Stripe Connect (`balance.retrieve`, `accounts.retrieve`,
+   `payouts.list`, all `{stripeContext: connectedAccountId}`), not written into Instar's own ledger
+   — sidesteps standing up a second, Connect-scoped webhook endpoint (payouts fire on the connected
+   account, not the platform's ordinary webhook) purely to keep a local table in sync with numbers
+   Stripe already serves live.
+
+**Confirmed while reading the pinned Stripe SDK's own `.d.ts` files (not assumed)**: because this
+app uses destination charges, Charge/PaymentIntent/Refund/Dispute objects all live on the
+**platform's own account** — no `stripeContext` needed for any of those calls, only for
+Balance/Payouts, which are the connected account's own data.
+
+**Schema**: one migration, `0006_fat_rockslide.sql` — adds a unique index on
+`refunds.stripe_refund_id` (needed for `onConflictDoNothing` dedupe in the new `charge.refunded`
+webhook handler). Same unconfirmed/unapplied situation as every migration since 0000 — handed off
+to Manvendra the same way (self-contained idempotent SQL, sha256 + bookkeeping insert, pasted into
+Supabase's SQL Editor).
+
+**New types** (`lib/commerce/types.ts`): `CoachBalanceResponse`, `PayoutScheduleResponse`,
+`CoachPayoutSummary`/`CoachPayoutsResponse`, `CoachPaymentSummary`/`CoachPaymentsResponse`,
+`RefundQuoteResponse`, `RefundPaymentRequest`/`RefundPaymentResponse`, `DisputeEvidenceFields`,
+`CoachDisputeSummary`/`CoachDisputesResponse`, `CoachDisputeDetailResponse`,
+`SaveDisputeEvidenceRequest`, `UploadEvidenceFileResponse`.
+
+**Balance + payouts** (`lib/commerce/payouts.ts`, all coach-authenticated):
+- `GET /api/coach/balance` — live Stripe balance for the coach's connected account plus
+  `revenueThisMonthCents`, the one number Stripe doesn't track for us (summed from our own
+  `payments` rows for the current calendar month — the only DB read in this trio).
+- `GET /api/coach/payout-schedule` — `stripe.accounts.retrieve(...).settings.payouts.schedule`.
+- `GET /api/coach/payouts` — `stripe.payouts.list({limit: 25}, {stripeContext})`.
+
+**Payments list** (`lib/commerce/payments.ts`): `GET /api/coach/payments` — joins
+`payments`+`clients`+`offers` (left join, so a deleted offer doesn't drop the row), then a second
+query aggregating `refunds` by `paymentId` (status `succeeded` only) to compute
+`refundedAmountCents`/derive `refunded`/`partially_refunded` status client-side of the DB, not via
+a second round trip per row.
+
+**Refunds** (`lib/commerce/refunds.ts`):
+- `GET /api/coach/payments/[id]/refund-quote?amountCents=` — previews `clientReceivesCents`,
+  `platformFeeReversedCents` (proportional to the requested amount, exact match on a full refund
+  rather than a rounding-derived approximation), and `coachBalanceImpactCents`, clamped to what's
+  actually left to refund.
+- `POST /api/coach/payments/[id]/refund` — creates the Stripe Refund
+  (`refund_application_fee: true`, `reverse_transfer: true`) but **never writes to `refunds` or
+  `payments` itself** — same webhook-as-sole-writer convention as checkout — only the new
+  `charge.refunded` handler does that, so a refund created any other way (Stripe Dashboard, a
+  future admin tool) is still captured correctly.
+- `webhookHandlers.ts` gained `handleChargeRefunded` — dedupes each of the charge's refunds on
+  `stripeRefundId` (the new unique index), then rolls the payment's own `status` to `refunded` or
+  `partially_refunded` once the refunded total is known.
+
+**Disputes** (`lib/commerce/disputes.ts`):
+- `GET /api/coach/disputes` — list, DB-only (status/reason/amount/due-by already synced by webhook).
+- `GET /api/coach/disputes/[id]` — DB row (ownership-scoped via `findOwnDispute`) combined with a
+  live `stripe.disputes.retrieve()` for the evidence fields + `submission_count`/`past_due` (not
+  persisted locally — Stripe is the source of truth for what's currently staged).
+- `PATCH .../evidence` (save draft, `submit: false`) / `POST .../evidence` (submit, `submit: true`)
+  — one shared internal `updateEvidence()`, `submit` is the only thing that differs. Evidence field
+  names are translated camelCase↔snake_case via a hand-written map; `acceptedEvidenceFieldsForReason`
+  is a curated (not exhaustive — Stripe doesn't expose this as data) reason→relevant-fields lookup
+  with a general fallback, so the UI only shows fields that actually apply to *this* dispute's
+  reason.
+- `POST .../files` — accepts `multipart/form-data`, converts the `File` to a `Buffer`, calls
+  `stripe.files.create({file: {data, name, type}, purpose: 'dispute_evidence'})`, returns the
+  Stripe file id for the evidence PATCH/POST to reference.
+- `webhookHandlers.ts` gained `handleDisputeSynced`, routed from `charge.dispute.created/updated/
+  closed` — upserts the `disputes` row (status, reason, amount, `evidenceDueBy`) and rolls the
+  linked payment's `status` to `disputed` (open) or back to `succeeded`/`refunded` once Stripe
+  reports a terminal outcome (`won`/`lost`/`warning_closed`/`prevented`).
+
+**All new modules/routes shipped with tests** (standing rule): `lib/commerce/payouts.test.ts`,
+`lib/commerce/payments.test.ts`, `lib/commerce/refunds.test.ts`, `lib/commerce/disputes.test.ts`,
+and a `route.test.ts` per new route (balance, payout-schedule, payouts, payments, refund-quote,
+refund, disputes, disputes/[id], disputes/[id]/evidence, disputes/[id]/files), plus extended
+`webhookHandlers.test.ts` coverage for `handleChargeRefunded`/`handleDisputeSynced` and their new
+dispatch cases. Verified: `npx tsc --noEmit`, `npx eslint .`, `npm test` (73 suites, 555 tests) all
+clean; `npm run build` succeeds with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` unset, and
+all ten new routes show up in the build's route list.
+
+**Not done / deliberately out of scope for this pass**:
+- No live-Stripe or live-DB verification — same standing gap as every pass in this file (this
+  sandbox reaches neither Postgres nor Stripe's API directly; only unit tests with `getDb`/
+  `getStripe` mocked ran).
+- No coach-facing UI for any of this (balance/payouts dashboard, payments table, refund button,
+  dispute inbox/evidence form) — this pass is the backend only, ahead of Pari's UI per the
+  established "mocks now, wire up the real thing later" pattern; the routes are ready for her to
+  call whenever that UI is built.
+- No "alert the coach" notification (email/push) for a new `charge.dispute.created` — the dispute
+  is only visible if the coach checks `/business` (once a page exists) or the Stripe Dashboard.
+  Given the 7-21 day response window Stripe usually gives, silent-until-checked is an accepted gap
+  for this pass, not a decision that it doesn't matter.
+- `duplicate` and several other Stripe dispute reasons don't have a curated evidence-field mapping
+  — they fall back to the general field set, which is a reasonable default but not
+  reason-specific like the seven reasons that do have one.
+- Refund/dispute amounts on a subscription's recurring invoice payments follow the same
+  known-approximation as checkout itself (Sprint 3): Stripe's Connect API can only take
+  `application_fee_percent` for a subscription, not an exact amount, so the fee reversed on a
+  partial refund of a subscription payment is Stripe's own proportional computation of that
+  percentage, not a value this app independently verifies against `computeCheckoutBreakdown`.

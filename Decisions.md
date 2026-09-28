@@ -5,6 +5,60 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-28 — Sprint 5 decisions: refund fee handling, dispute evidence flow, balance source of truth
+
+Manvendra shared a suggested API/type table for Sprint 5 (`Workplan-Manvendra.md`'s "Refunds,
+disputes, payouts") and asked to settle three open questions before building, then start Sprint 5.
+
+**1. Refund + platform fee: refunded proportionally, not kept regardless.**
+Uses Stripe's own `refund_application_fee: true` on every refund — for a full refund the whole 2%
+platform fee is reversed; for a partial refund Stripe reverses it proportionally to the amount
+refunded, automatically. Also always sets `reverse_transfer: true` in the same call — **this isn't
+optional for a destination charge**: without it, only the platform's own Stripe balance would be
+debited by the refund while the money already transferred to the coach's connected account would
+stay there untouched, silently leaving the platform out of pocket. Confirmed both params exist
+exactly for this destination-charge scenario by reading `RefundCreateParams` directly, not assumed.
+
+**2. Dispute evidence: draft-and-submit, matching Stripe's own API shape exactly.**
+Stripe's `disputes.update()` already supports this natively: `evidence` fields can be saved
+repeatedly with `submit: false`, and a final call with `submit: true` locks it in — there's no
+separate "draft" concept our own database needs to track, since Stripe's own dispute object *is*
+the draft state (`GET` the dispute back to see what's staged so far). **Gotcha worth remembering**:
+`submit` defaults to `true` — a save-only call must explicitly pass `submit: false` or it will
+finalize immediately.
+
+**3. Balance/payouts: live from Stripe Connect, not Instar's own ledger.**
+Matches the workplan's own "done when" bar ("payout numbers match the Stripe dashboard") and the
+established `onboarding-status` pattern (live `stripe.accounts.retrieve()` rather than trusting a
+cache). Practical consequence: **payout history is also read live from Stripe's own Payouts List
+API** (`stripe.payouts.list(..., { stripeContext: connectedAccountId })`), not backed by the
+`payouts` table at all — that table stays unused for now. This sidesteps a real complication
+found while planning: Stripe payouts are connected-account-scoped events, which by default are
+**not** delivered to a platform's ordinary account-level webhook endpoint at all — receiving them
+would need a *separate* Connect-scoped webhook registration in the Dashboard, a whole extra piece
+of infrastructure this pass avoids needing entirely by reading live instead.
+
+**Also confirmed while reading the Stripe SDK's own types (not assumed)**: because this app uses
+*destination* charges (Week-1 decision), the Charge/PaymentIntent/Refund/Dispute objects all live
+on the **platform's own account**, not the coach's connected account — only Balance and Payouts are
+connected-account-scoped (that's literally whose bank account the money lands in). So refund and
+dispute API calls need no `stripeContext` override at all, while balance/payout calls always do.
+Getting this backwards would have meant every refund/dispute call 404ing or hitting the wrong
+account's objects.
+
+**Schema**: one new migration (`0006_fat_rockslide.sql`) adds a unique index on
+`refunds.stripe_refund_id` — every other Stripe-mirroring table already had one for its
+webhook-upsert idempotency key; `refunds` was the one gap, and Sprint 5 is the first thing that
+actually needs to write a `refunds` row idempotently. **Same unconfirmed/unapplied situation as
+every migration since 0000** — handed off the same way, this sandbox still has no Postgres access.
+
+**Not building in this pass**: an actual "alert the coach" notification (email/push) for
+`charge.dispute.created` — no coach-facing notification channel exists yet (Resend is wired for
+client emails only), and deciding what should trigger one, and how urgently, is a product call
+outside these three settled decisions. The dispute *does* land in the database and is fully
+queryable via the new APIs; surfacing it prominently (a banner, a badge) is Pari's UI work per her
+own Sprint 5 ("Disputes inbox: alert banner, deadline countdown").
+
 ## 2026-09-27 — Sprint 4 completed for both workplans: recurring billing, dunning, pause, client self-serve
 
 Manvendra asked to complete Sprint 4 for both Manvendra's (`Workplan-Manvendra.md`, "Recurring

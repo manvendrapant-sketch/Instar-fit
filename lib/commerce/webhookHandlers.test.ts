@@ -1,6 +1,7 @@
 import {
   dispatchWebhookEvent,
   handleCheckoutSessionCompleted,
+  handleChargeRefunded,
   handleCustomerUpdated,
   handleInvoicePaid,
   handleInvoicePaymentActionRequired,
@@ -24,6 +25,7 @@ function mockDb(opts: {
   clientFindFirst?: unknown;
   offerFindFirst?: unknown;
   coachFindFirst?: unknown;
+  paymentFindFirst?: jest.Mock;
   insertReturning?: unknown[];
 }) {
   const subFindFirst = jest.fn().mockResolvedValue(opts.subscriptionFindFirst ?? null);
@@ -31,6 +33,7 @@ function mockDb(opts: {
   const clientFindFirst = jest.fn().mockResolvedValue(opts.clientFindFirst ?? null);
   const offerFindFirst = jest.fn().mockResolvedValue(opts.offerFindFirst ?? null);
   const coachFindFirst = jest.fn().mockResolvedValue(opts.coachFindFirst ?? null);
+  const paymentFindFirst = opts.paymentFindFirst ?? jest.fn().mockResolvedValue(null);
 
   const onConflictDoNothing = jest.fn().mockReturnValue(Promise.resolve(opts.insertReturning ?? []));
   const insertValues = jest.fn().mockReturnValue({ onConflictDoNothing });
@@ -47,11 +50,12 @@ function mockDb(opts: {
       clients: { findFirst: clientFindFirst },
       offers: { findFirst: offerFindFirst },
       coaches: { findFirst: coachFindFirst },
+      payments: { findFirst: paymentFindFirst },
     },
     insert,
     update,
   };
-  return { db, insert, insertValues, update, updateSet, updateWhere };
+  return { db, insert, insertValues, update, updateSet, updateWhere, paymentFindFirst };
 }
 
 beforeEach(() => jest.clearAllMocks());
@@ -437,6 +441,78 @@ describe('handleCustomerUpdated', () => {
   });
 });
 
+describe('handleChargeRefunded', () => {
+  const PAYMENT_ROW = { id: 'pay-1', totalAmountCents: 20000, status: 'succeeded' };
+
+  it('skips silently when no payments row matches the charge or payment_intent id', async () => {
+    const { db, insert } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(null) });
+    await handleChargeRefunded(db as never, {
+      id: 'ch_1',
+      payment_intent: 'pi_1',
+      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded', metadata: {} }] },
+    } as never);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('falls back to looking up by payment_intent id when the charge id does not match', async () => {
+    const paymentFindFirst = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(PAYMENT_ROW);
+    const { db } = mockDb({ paymentFindFirst });
+    await handleChargeRefunded(db as never, {
+      id: 'ch_1',
+      payment_intent: 'pi_1',
+      refunds: { data: [] },
+    } as never);
+    expect(paymentFindFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it('inserts a refunds row per refund on the charge, carrying the metadata reason', async () => {
+    const { db, insertValues } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
+    await handleChargeRefunded(db as never, {
+      id: 'ch_1',
+      payment_intent: 'pi_1',
+      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded', metadata: { reason: 'Client request' } }] },
+    } as never);
+    expect(insertValues).toHaveBeenCalledWith({
+      paymentId: 'pay-1',
+      stripeRefundId: 're_1',
+      amountCents: 5000,
+      reason: 'Client request',
+      initiatedBy: 'coach',
+      status: 'succeeded',
+    });
+  });
+
+  it('marks the payment partially_refunded when less than the total has been refunded', async () => {
+    const { db, updateSet } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
+    await handleChargeRefunded(db as never, {
+      id: 'ch_1',
+      payment_intent: 'pi_1',
+      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded', metadata: {} }] },
+    } as never);
+    expect(updateSet).toHaveBeenCalledWith({ status: 'partially_refunded' });
+  });
+
+  it('marks the payment refunded when the full total has been refunded', async () => {
+    const { db, updateSet } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
+    await handleChargeRefunded(db as never, {
+      id: 'ch_1',
+      payment_intent: 'pi_1',
+      refunds: { data: [{ id: 're_1', amount: 20000, status: 'succeeded', metadata: {} }] },
+    } as never);
+    expect(updateSet).toHaveBeenCalledWith({ status: 'refunded' });
+  });
+
+  it('does not touch payment status when the only refund has not succeeded', async () => {
+    const { db, update } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
+    await handleChargeRefunded(db as never, {
+      id: 'ch_1',
+      payment_intent: 'pi_1',
+      refunds: { data: [{ id: 're_1', amount: 5000, status: 'pending', metadata: {} }] },
+    } as never);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe('dispatchWebhookEvent', () => {
   const origin = 'https://instar-fit.vercel.app';
 
@@ -481,6 +557,13 @@ describe('dispatchWebhookEvent', () => {
     const { db } = mockDb({ clientFindFirst: null });
     await expect(
       dispatchWebhookEvent(db as never, { type: 'customer.updated', data: { object: { id: 'cus_1', name: 'A', email: 'a@b.com' } } } as never, origin),
+    ).resolves.toBeUndefined();
+  });
+
+  it('routes charge.refunded', async () => {
+    const { db } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(null) });
+    await expect(
+      dispatchWebhookEvent(db as never, { type: 'charge.refunded', data: { object: { id: 'ch_1', refunds: { data: [] } } } } as never, origin),
     ).resolves.toBeUndefined();
   });
 });

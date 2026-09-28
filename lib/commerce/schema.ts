@@ -216,18 +216,22 @@ export const payments = pgTable(
   (t) => [uniqueIndex('payments_intent_idx').on(t.stripePaymentIntentId)],
 ).enableRLS();
 
-export const refunds = pgTable('refunds', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  paymentId: uuid('payment_id')
-    .notNull()
-    .references(() => payments.id, { onDelete: 'cascade' }),
-  stripeRefundId: text('stripe_refund_id'),
-  amountCents: integer('amount_cents').notNull(),
-  reason: text('reason'),
-  initiatedBy: refundInitiatorEnum('initiated_by').notNull(),
-  status: refundStatusEnum('status').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}).enableRLS();
+export const refunds = pgTable(
+  'refunds',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id, { onDelete: 'cascade' }),
+    stripeRefundId: text('stripe_refund_id'),
+    amountCents: integer('amount_cents').notNull(),
+    reason: text('reason'),
+    initiatedBy: refundInitiatorEnum('initiated_by').notNull(),
+    status: refundStatusEnum('status').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('refunds_stripe_idx').on(t.stripeRefundId)],
+).enableRLS();
 
 export const disputes = pgTable(
   'disputes',
