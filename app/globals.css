@@ -9,6 +9,7 @@
 @import './styles/public.css';
 @import './styles/clients.css';
 @import './styles/disputes.css';
+@import './styles/checklist.css';
 
 * {
   box-sizing: border-box;
