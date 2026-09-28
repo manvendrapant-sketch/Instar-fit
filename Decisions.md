@@ -5,6 +5,41 @@ instead of living only in a chat or an Obsidian vault. Newest first. Add to this
 
 ---
 
+## 2026-09-28 — Webhook handlers throw (not silently skip) on a likely race with another handler
+
+Found while investigating why a client's subscription payment never showed up anywhere (payout
+dashboard, earned-this-month) despite the subscription itself being active: `handleInvoicePaid`
+and `handleSubscriptionSynced` both looked up their own `subscriptions` row by Stripe subscription
+id and, if not found yet, logged an error and returned — a **silent** no-op. The webhook route
+still returned 200 in that case, so Stripe considered the delivery successful and never retried,
+permanently losing that event with nothing but a server log line (which nobody in this session can
+read back) as evidence anything happened.
+
+The actual root cause is very likely ordering: `checkout.session.completed` is what inserts the
+`subscriptions` row, but Stripe can and does deliver that event and a subscription's very first
+`invoice.paid` (or an early `customer.subscription.updated`) close enough together in time that the
+latter's request can be handled — and its `SELECT` run — before the former's `INSERT` has committed.
+Two separate webhook deliveries are two separate HTTP requests with no ordering guarantee between
+them.
+
+**Decision: for exactly this "the row this event needs doesn't exist *yet*" shape, throw instead of
+silently returning.** Throwing makes the route return 500, which is precisely what tells Stripe to
+retry with its own backoff (minutes, then hours) — by the next attempt the race has resolved. This
+turns a permanent, invisible data loss into an ordinary self-healing retry, at the cost of one log
+line and a delayed (not lost) write. Applied narrowly to the two "no subscriptions row yet" checks,
+not blanket-applied to every "row not found" branch in this file: a genuinely permanent condition
+(e.g. `checkout.session.completed`'s "no active price for offer", or a payment/dispute's data being
+simply malformed) doesn't benefit from a retry and would just make Stripe hammer a webhook that will
+never succeed. Use judgement per case: is this "the other event hasn't landed yet" (retry) or "this
+will never be true no matter how many times you ask" (skip)?
+
+Recovering data already lost to the old silent-skip behavior (before this fix shipped) needs a
+manual step this session can't do itself: Stripe Dashboard → Developers → Webhooks → the endpoint →
+find the specific missed event → **Resend**. With the fix in place, a resend will now actually
+succeed and backfill the missing row, instead of silently no-op'ing again.
+
+---
+
 ## 2026-09-28 — Sprint 5 decisions: refund fee handling, dispute evidence flow, balance source of truth
 
 Manvendra shared a suggested API/type table for Sprint 5 (`Workplan-Manvendra.md`'s "Refunds,

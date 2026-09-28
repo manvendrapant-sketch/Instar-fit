@@ -199,9 +199,9 @@ describe('handleInvoicePaid', () => {
     expect(insert).not.toHaveBeenCalled();
   });
 
-  it('skips when no subscriptions row exists yet for the Stripe subscription id', async () => {
+  it('throws when no subscriptions row exists yet for the Stripe subscription id, so Stripe retries', async () => {
     const { db, insert } = mockDb({ subscriptionFindFirst: null });
-    await handleInvoicePaid(db as never, invoiceBase as never);
+    await expect(handleInvoicePaid(db as never, invoiceBase as never)).rejects.toThrow(/no subscriptions row/);
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -327,9 +327,11 @@ describe('handleInvoicePaymentFailed / handleInvoicePaymentActionRequired', () =
 });
 
 describe('handleSubscriptionSynced', () => {
-  it('skips when no subscriptions row exists yet', async () => {
+  it('throws when no subscriptions row exists yet, so Stripe retries', async () => {
     const { db, update } = mockDb({ subscriptionFindFirst: null });
-    await handleSubscriptionSynced(db as never, { id: 'sub_1', status: 'active', items: { data: [] } } as never);
+    await expect(
+      handleSubscriptionSynced(db as never, { id: 'sub_1', status: 'active', items: { data: [] } } as never),
+    ).rejects.toThrow(/no subscriptions row/);
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -532,7 +534,7 @@ describe('dispatchWebhookEvent', () => {
     await expect(dispatchWebhookEvent(db as never, { type: 'account.updated', data: { object: {} } } as never, origin)).resolves.toBeUndefined();
   });
 
-  it('routes the Sprint-4 dunning and subscription-sync event types', async () => {
+  it('routes the Sprint-4 dunning event types', async () => {
     const { db } = mockDb({ subscriptionFindFirst: null });
 
     await expect(
@@ -541,6 +543,11 @@ describe('dispatchWebhookEvent', () => {
     await expect(
       dispatchWebhookEvent(db as never, { type: 'invoice.payment_action_required', data: { object: { parent: null } } } as never, origin),
     ).resolves.toBeUndefined();
+  });
+
+  it('routes the subscription-sync event types', async () => {
+    const { db } = mockDb({ subscriptionFindFirst: { id: 'sub-row-1', pauseReason: null } });
+
     for (const type of [
       'customer.subscription.updated',
       'customer.subscription.deleted',

@@ -7,6 +7,7 @@ import { useAppState } from '@/lib/store';
 import { formatMoney } from '@/lib/offers';
 import { LoadingSection } from '@/components/LoadingSection';
 import { STOREFRONT_PATH } from '@/lib/storefront';
+import { createDashboardLink } from '@/lib/payouts';
 import type { CoachPaymentSummary, CoachPayoutSummary, RefundPaymentResponse } from '@/lib/commerce/types';
 import { RefundDialog } from '@/components/RefundDialog';
 import { isRefundable } from '@/lib/refunds';
@@ -35,6 +36,7 @@ export function PayoutDashboard() {
   // Payments with a refund sent to Stripe but not yet confirmed back (the charge.refunded webhook
   // is what updates the row), so their Refund button can't be pressed twice meanwhile.
   const [processing, setProcessing] = useState<ReadonlySet<string>>(new Set());
+  const [managing, setManaging] = useState(false);
 
   const load = useCallback(() => {
     setState(null);
@@ -61,7 +63,17 @@ export function PayoutDashboard() {
   }
 
   const d = state.data;
-  const manage = () => toast('This will open your Stripe Express dashboard');
+  const manage = async () => {
+    if (managing) return;
+    setManaging(true);
+    const result = await createDashboardLink();
+    if (result.ok) {
+      window.location.href = result.url;
+      return;
+    }
+    setManaging(false);
+    toast(result.message);
+  };
 
   function onRefunded(payment: CoachPaymentSummary, refund: RefundPaymentResponse) {
     setRefunding(null);
@@ -96,8 +108,8 @@ export function PayoutDashboard() {
                 <h2 id="pd-sched">Payout schedule</h2>
                 <p className="ins-pd-sched">{scheduleLabel(d.schedule)}</p>
                 <p className="ins-pd-muted">{delayLabel(d.schedule)}</p>
-                <button type="button" className="ins-btn" onClick={manage}>
-                  Change on Stripe
+                <button type="button" className="ins-btn" onClick={manage} disabled={managing}>
+                  {managing ? 'Opening…' : 'Change on Stripe'}
                 </button>
               </section>
             </div>
@@ -117,8 +129,8 @@ export function PayoutDashboard() {
         <span>
           <Icon name="lock" className="ins-i sm" /> Bank account managed on Stripe
         </span>
-        <button type="button" className="ins-btn quiet" onClick={manage}>
-          Manage on Stripe
+        <button type="button" className="ins-btn quiet" onClick={manage} disabled={managing}>
+          {managing ? 'Opening…' : 'Manage on Stripe'}
         </button>
       </section>
     </div>
