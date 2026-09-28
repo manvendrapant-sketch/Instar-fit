@@ -1798,3 +1798,37 @@ payment_intent had test coverage), and the Stripe-call-fails-gracefully case. Ve
 `payments` row with `subscriptionId` set and both Stripe ids null, and reconcile each one via
 `stripe.invoicePayments.list`. Flagged, not built — this pass was scoped to stopping the bleeding
 for new payments, per what was actually reported.
+
+### Backfill script built for the already-broken rows (2026-09-28, later same day)
+
+Manvendra asked for the backfill flagged above. New `scripts/backfill-payment-stripe-ids.ts`
+(`npm run db:backfill-payment-ids`) — same one-off, `tsx`-run, needs-real-network-access shape as
+`scripts/seed-commerce.ts`, not app code and not covered by the standing "ships with tests" rule
+(seed-commerce.ts has no test file either, for the same reason).
+
+**The real design problem**: this app's `payments` table has no column linking a row back to the
+Stripe invoice that produced it, so a subscription with more than one billing cycle already
+recorded has no direct way to say "this row is that invoice." The script correlates by **time
+proximity** instead: for each affected row, it lists the subscription's paid Stripe invoices and
+picks whichever one's `created` timestamp is closest to the row's own `createdAt` — the webhook
+route writes the row moments after `invoice.paid` fires, so in practice these are seconds apart,
+not a coincidence to rely on for exact-timestamp matches but plenty for "closest wins." Two
+safeguards keep this from doing something wrong rather than nothing: rows more than 10 minutes
+away from any candidate invoice are skipped and logged (not guessed at), and an invoice already
+claimed by an earlier row in the same run can't be reused by another — one invoice, one payment
+row, enforced within the run.
+
+**Gotcha hit while writing it**: the script can't import `getStripe()` from `lib/stripe/client.ts`
+— that file has `import 'server-only'` at the top, and the real `server-only` package
+(`node_modules/server-only/index.js`) unconditionally throws on import; Next's bundler swaps it for
+a no-op, but `tsx` (what runs this script, same as `seed-commerce.ts`) is not Next's bundler. The
+script constructs its own `new Stripe(...)` client instead, same pinned API version and options as
+`getStripe()`, rather than touching that file's own guard.
+
+Verified: `tsc --noEmit`, `eslint .` on the new file both clean; the rest of the standing
+suite (`npm test`, `npm run build`) unaffected since this is a standalone script, not imported by
+any route. **Not run against the real database or Stripe** — same standing sandbox limitation as
+every DB/Stripe operation in this file; Manvendra needs to run
+`DATABASE_URL=... STRIPE_SECRET_KEY=... npm run db:backfill-payment-ids` himself, from somewhere
+with real network access to both, pointed at whichever Stripe environment ("Instar Sandbox," per
+the environment-pairing rule elsewhere in this file) those specific payments were actually made in.

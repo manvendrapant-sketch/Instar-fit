@@ -11,6 +11,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed-commerce.ts",
+    "db:backfill-payment-ids": "tsx scripts/backfill-payment-stripe-ids.ts",
     "test": "jest",
     "test:watch": "jest --watch"
   },
