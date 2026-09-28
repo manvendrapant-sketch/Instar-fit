@@ -1500,7 +1500,64 @@ confirmed the full dashboard (next-payout hero, earned/pending/available stats, 
 correct net/refunded amounts and status chips, payouts list, schedule card), the empty state, and
 the error/retry state, all screenshotted.
 
-**Not done**: no live-Stripe or live-DB verification (same standing gap as every pass in this file).
-The "Manage on Stripe" / "Change on Stripe" buttons still just toast a placeholder — linking them to
-a real Stripe Express dashboard link (if Stripe exposes one for an Express account short of the full
-login link flow) wasn't part of this reconciliation pass.
+**Not done at the time**: no live-Stripe or live-DB verification. The "Manage on Stripe"/"Change on
+Stripe" buttons still just toasted a placeholder. Both addressed the same day — see below.
+
+### Three things Manvendra found live-testing the new dashboard (2026-09-28)
+
+**1. "I don't see all of my clients in the payouts dashboard."** Real bug, confirmed from a
+screenshot: the Clients page showed 2 subscriptions (1 active, 1 canceled) + 4 one-time purchases
+for one client, but the payout dashboard's "Recent payments" and "Earned this month" only reflected
+the 4 one-time purchases — the active subscription's own payment was invisible everywhere in
+`payments`-derived views, even though the subscription itself was correctly `active`.
+
+Root-caused from the code (this session still can't read the live DB or Stripe's event log
+directly): `handleInvoicePaid` and `handleSubscriptionSynced` (`lib/commerce/webhookHandlers.ts`)
+both look up their own `subscriptions` row and, if it's not there *yet*, logged an error and
+silently returned 200 to Stripe — no retry, and the row that insert would have written to
+`payments` never happens. The likely trigger: `checkout.session.completed` is what inserts that
+`subscriptions` row, and Stripe can deliver that event and the subscription's first `invoice.paid`
+(or an early `customer.subscription.updated`) close enough together that the second one's `SELECT`
+runs before the first one's `INSERT` has committed — two separate webhook deliveries, no ordering
+guarantee between them. See `Decisions.md`'s new entry for the full reasoning. **Fixed**: both of
+those "no subscriptions row yet" branches now `throw` instead of silently returning, so the webhook
+route returns 500 and Stripe retries with its own backoff — turning a permanent, invisible loss
+into an ordinary delayed-but-successful write. Shipped with updated tests
+(`lib/commerce/webhookHandlers.test.ts`) asserting both now reject rather than resolve silently.
+**The already-missing subscription payment from before this fix isn't automatically recovered** —
+that needs a manual step only Manvendra can do: Stripe Dashboard → Developers → Webhooks → the
+endpoint → find that invoice's `invoice.paid` delivery → **Resend**; with the fix live, the resend
+will now actually write the row instead of silently no-op'ing again.
+
+**2. "I don't understand how Available / On its way / Earned this month work."** Not a bug, a
+documentation gap — explained directly: **Available** and **On its way** are Stripe's own live
+`balance.retrieve()` numbers for the connected account (`available`/`pending`), reflecting
+settlement status only — "on its way" is money already charged to a client but still inside
+Stripe's payout delay window (2 days on the default daily schedule); it moves to "available" on its
+own once that window passes, then goes out with the next scheduled payout. **Earned this month**
+is a completely independent number, computed by *this app* (`sumNetEarnedCents`) from our own
+`payments`/`refunds` rows for the current calendar month, net of Instar's platform fee — it does
+NOT need to reconcile against Available+On its way, since one is Stripe's real-time settlement
+state and the other is our own revenue-recognition approximation for a different time window (the
+whole month vs. whatever hasn't settled yet). The bug in (1) made this worse than it should've
+been: with a subscription payment invisible to our own `payments` table, "Earned this month" was
+undercounting relative to what Stripe's own pending balance actually reflected (which correctly
+included that subscription's real charge) — expect the two to look more consistent once (1)'s fix
+takes effect for new payments.
+
+**3. "Manage on Stripe shows a toast instead of the real Stripe dashboard."** True — the button was
+never wired past its original placeholder. Fixed: new `POST /api/coach/connect/dashboard-link`
+(`stripe.accounts.createLoginLink(stripeAccountId)`, 422 `NOT_CONNECTED` if payouts aren't set up
+yet) and `lib/payouts.ts`'s `createDashboardLink()` frontend wrapper. Both "Change on Stripe" and
+"Manage on Stripe" buttons now call it and do a real `window.location.href` redirect to the
+resulting one-time Express dashboard login link (same external-redirect pattern as checkout and
+Connect onboarding — Stripe's own login links are single-use, so a fresh one is created on every
+click rather than cached), with a disabled "Opening…" state while the request is in flight and a
+toast if it fails. New types: `DashboardLinkResponse`.
+
+**Verified**: `tsc --noEmit`, `eslint .`, `npm test` (75 suites, 579 tests), `npm run build` (six
+lazy-client env vars unset) all clean, and the new route shows up in the build's route list. Real
+dev server, Playwright: confirmed clicking "Manage on Stripe" now calls the real endpoint and
+attempts a genuine cross-origin navigation to the returned Stripe URL (the navigation itself can't
+complete from this sandbox — no route to `connect.stripe.com` — same limitation as every other
+Stripe-redirect verification in this file; the call and redirect *attempt* are what's confirmed).

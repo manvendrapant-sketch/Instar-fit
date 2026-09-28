@@ -137,6 +137,13 @@ export interface CreateAccountLinkResponse {
   url: string;
 }
 
+/** POST /api/coach/connect/dashboard-link — a one-time-use link into the coach's own Stripe
+ * Express dashboard (their view: balance, payout history, bank details), not the platform's own
+ * Stripe Dashboard. Requires payouts to already be connected. */
+export interface DashboardLinkResponse {
+  url: string;
+}
+
 /** The coach's own view of an offer — adds fields the public profile never shows. */
 export interface CoachOfferSummary extends OfferSummary {
   active: boolean;

@@ -1,5 +1,5 @@
 import { apiFetch } from './api-client';
-import type { ConnectStatus, CreateAccountLinkRequest, CreateAccountLinkResponse, OnboardingStatus } from './commerce/types';
+import type { ConnectStatus, CreateAccountLinkRequest, CreateAccountLinkResponse, DashboardLinkResponse, OnboardingStatus } from './commerce/types';
 
 // Connect payouts. The coach's bank, ID and tax details are collected by Stripe's hosted Express
 // onboarding, never by Instar — this app only shows OnboardingStatus
@@ -108,6 +108,14 @@ export async function createAccountLink(
     method: 'POST',
     body: request,
   });
+  if (result.success) return { ok: true, url: result.data.url };
+  return { ok: false, message: result.message };
+}
+
+/** A fresh one-time link into the coach's own Stripe Express dashboard — "Manage on Stripe" on the
+ * payouts page. Created fresh on every call since Stripe's login links are single-use. */
+export async function createDashboardLink(): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  const result = await apiFetch<DashboardLinkResponse>('/api/coach/connect/dashboard-link', { method: 'POST' });
   if (result.success) return { ok: true, url: result.data.url };
   return { ok: false, message: result.message };
 }

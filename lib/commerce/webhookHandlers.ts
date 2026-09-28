@@ -132,8 +132,15 @@ export async function handleInvoicePaid(db: Db, invoice: Stripe.Invoice): Promis
     where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, stripeSubscriptionId),
   });
   if (!subscription) {
-    console.error(`invoice.paid ${invoice.id}: no subscriptions row for ${stripeSubscriptionId} yet, skipping`);
-    return;
+    // Almost always a race, not a permanent gap: `checkout.session.completed` inserts this same
+    // subscriptions row, and Stripe can deliver that event and this invoice's `invoice.paid` close
+    // enough together that this one arrives first. Throwing (rather than the silent skip this used
+    // to be) makes the webhook route return 500, so Stripe retries with backoff — by the next
+    // attempt the other event has almost always landed. A silent skip here previously meant this
+    // invoice's payment was gone for good the moment it lost the race, with no trace but a server
+    // log line nobody was reading (confirmed 2026-09-28: a subscription's first invoice payment
+    // never appeared in `payments` despite the subscription itself becoming active).
+    throw new Error(`invoice.paid ${invoice.id}: no subscriptions row for ${stripeSubscriptionId} yet`);
   }
 
   const [client, priceRow] = await Promise.all([
@@ -373,8 +380,9 @@ export async function handleSubscriptionSynced(db: Db, sub: Stripe.Subscription)
     where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, sub.id),
   });
   if (!existing) {
-    console.error(`customer.subscription synced ${sub.id}: no subscriptions row yet, skipping`);
-    return;
+    // Same race as invoice.paid above: throw so Stripe retries once checkout.session.completed's
+    // own insert of this subscriptions row has landed, instead of silently dropping this sync.
+    throw new Error(`customer.subscription synced ${sub.id}: no subscriptions row yet`);
   }
 
   const fields = subscriptionSyncFields(sub, existing.pauseReason);
