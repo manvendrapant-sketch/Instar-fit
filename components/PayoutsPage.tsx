@@ -5,6 +5,7 @@ import type { ConnectStatus } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
 import { LoadingSection } from '@/components/LoadingSection';
 import { PayoutDashboard } from '@/components/PayoutDashboard';
+import { DisputeAlert } from '@/components/DisputeAlert';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
@@ -61,6 +62,7 @@ export function PayoutsPage() {
     return (
       <>
         <PayoutsHero />
+        <DisputeAlert />
         {!storefrontStatus?.published && (
           <section className="ins-panel ins-offers-next ins-in d1" aria-labelledby="po-next">
             <span className="ins-sf-prompt-icon" aria-hidden="true">

@@ -346,6 +346,21 @@ this needs a real signup attempt against the live site to know for sure, same as
   the next load. The earlier proposed shapes (private note, `refundableCents`, 404 sample fallback)
   were dropped when reconciling with the real API. Needs `charge.refunded` subscribed on the Stripe
   webhook endpoint (and migration 0006 applied) before a refund ever shows as refunded.
+- **Disputes inbox (Sprint 5, Pari's side)** on `feat/storefront-disputes`, on Manvendra's dispute
+  routes (no contract change). `/business/disputes` (`components/DisputesPage.tsx`) groups by Stripe
+  status into Needs your response (soonest deadline first) / With the bank / Closed;
+  `/business/disputes/[id]` (`components/DisputeDetail.tsx`) has a countdown hero, plain-English
+  "what the bank was told / what helps" per reason, and an evidence form showing only
+  `acceptedEvidenceFields`. Save draft = PATCH, Submit = POST (behind an inline "you can only submit
+  once" confirm); only changed fields are sent (`changedFields`), a cleared one as `""`. Files upload
+  first (`POST .../files`, PDF/JPG/PNG, 4.5 MB checked client-side) and the field holds the Stripe
+  file id. After submit, `submissionCount > 0` is what flips the page to "Submitted": the route's
+  status comes from our DB row, which only moves when `charge.dispute.updated` arrives.
+  `components/DisputeAlert.tsx` is the alert banner on Today and Payouts (silent on error or when
+  nothing needs a response); the sidebar has a Disputes entry (`disputes` tile in `lib/data.ts`), and
+  the payout dashboard's "In dispute" links to the inbox. Logic + copy in `lib/disputes.ts` (tested).
+  Needs `charge.dispute.created/updated/closed` subscribed on the Stripe webhook before any dispute
+  shows up at all.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
