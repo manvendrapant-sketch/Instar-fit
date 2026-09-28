@@ -3,10 +3,11 @@ import { eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type * as schema from './schema';
-import { subscriptions, payments, clientLoginTokens, clients } from './schema';
+import { subscriptions, payments, clientLoginTokens, clients, refunds, disputes } from './schema';
 import { upsertClient } from './clients';
 import { computeCheckoutBreakdown } from './money';
 import { mapSubscriptionStatus, subscriptionSyncFields } from './subscriptions';
+import { mapRefundStatus } from './refunds';
 import { getStripe } from '@/lib/stripe/client';
 import { generateLoginToken, hashLoginToken, LOGIN_TOKEN_TTL_MS } from '@/lib/auth/clientToken';
 import { sendDunningEmail } from '@/lib/email/send';
@@ -266,6 +267,101 @@ export async function handleCustomerUpdated(db: Db, customer: Stripe.Customer): 
 }
 
 /**
+ * Writes every refund on a charge into `refunds` (idempotent on `stripeRefundId`), then updates
+ * the payment's own status to `refunded`/`partially_refunded`. Never triggered by our own
+ * POST /api/coach/payments/[id]/refund route directly — that route only calls Stripe; this is
+ * the sole writer of the `refunds` table, same "webhook is the one writer of ledger rows"
+ * convention as every other payment in this app.
+ */
+export async function handleChargeRefunded(db: Db, charge: Stripe.Charge): Promise<void> {
+  const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+
+  let payment = await db.query.payments.findFirst({ where: (p, { eq: eqCol }) => eqCol(p.stripeChargeId, charge.id) });
+  if (!payment && paymentIntentId) {
+    payment = await db.query.payments.findFirst({ where: (p, { eq: eqCol }) => eqCol(p.stripePaymentIntentId, paymentIntentId) });
+  }
+  if (!payment) {
+    console.error(`charge.refunded ${charge.id}: no matching payments row, skipping`);
+    return;
+  }
+
+  const refundList = charge.refunds?.data ?? [];
+  for (const r of refundList) {
+    const reason = typeof r.metadata?.reason === 'string' ? r.metadata.reason : null;
+    await db
+      .insert(refunds)
+      .values({
+        paymentId: payment.id,
+        stripeRefundId: r.id,
+        amountCents: r.amount,
+        reason,
+        initiatedBy: 'coach',
+        status: mapRefundStatus(r.status),
+      })
+      .onConflictDoNothing({ target: refunds.stripeRefundId });
+  }
+
+  const totalRefundedCents = refundList
+    .filter((r) => mapRefundStatus(r.status) === 'succeeded')
+    .reduce((sum, r) => sum + r.amount, 0);
+  if (totalRefundedCents > 0) {
+    const newStatus = totalRefundedCents >= payment.totalAmountCents ? 'refunded' : 'partially_refunded';
+    if (payment.status !== newStatus) {
+      await db.update(payments).set({ status: newStatus }).where(eq(payments.id, payment.id));
+    }
+  }
+}
+
+/**
+ * A dispute that's resolved changes what the underlying payment means: `won`/`warning_closed`/
+ * `prevented` mean the coach keeps the money (back to `succeeded`); `lost` means it's gone, the
+ * closest existing status to that being `refunded`. Anything still open (`needs_response`,
+ * `under_review`, their `warning_*` variants) marks the payment `disputed`.
+ */
+function paymentStatusForDispute(disputeStatus: string): typeof payments.$inferInsert.status {
+  if (disputeStatus === 'won' || disputeStatus === 'warning_closed' || disputeStatus === 'prevented') return 'succeeded';
+  if (disputeStatus === 'lost') return 'refunded';
+  return 'disputed';
+}
+
+/**
+ * One shared handler for `charge.dispute.created/updated/closed` — all three are "here's the
+ * dispute's current state, sync it" the same way `handleSubscriptionSynced` covers four
+ * subscription events with one function. Upserts by `stripeDisputeId` (unique), and updates the
+ * underlying payment's own status to reflect whether the dispute is open or resolved.
+ */
+export async function handleDisputeSynced(db: Db, dispute: Stripe.Dispute): Promise<void> {
+  const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge.id;
+  const payment = await db.query.payments.findFirst({ where: (p, { eq: eqCol }) => eqCol(p.stripeChargeId, chargeId) });
+  if (!payment) {
+    console.error(`charge.dispute ${dispute.id}: no matching payments row for charge ${chargeId}, skipping`);
+    return;
+  }
+
+  const dueBy = dispute.evidence_details?.due_by;
+  const values = {
+    paymentId: payment.id,
+    stripeDisputeId: dispute.id,
+    amountCents: dispute.amount,
+    reason: dispute.reason,
+    status: dispute.status,
+    evidenceDueBy: dueBy ? new Date(dueBy * 1000) : null,
+  };
+
+  const existing = await db.query.disputes.findFirst({ where: (d, { eq: eqCol }) => eqCol(d.stripeDisputeId, dispute.id) });
+  if (existing) {
+    await db.update(disputes).set({ ...values, updatedAt: new Date() }).where(eq(disputes.id, existing.id));
+  } else {
+    await db.insert(disputes).values(values).onConflictDoNothing({ target: disputes.stripeDisputeId });
+  }
+
+  const newPaymentStatus = paymentStatusForDispute(dispute.status);
+  if (payment.status !== newPaymentStatus) {
+    await db.update(payments).set({ status: newPaymentStatus }).where(eq(payments.id, payment.id));
+  }
+}
+
+/**
  * One shared handler for every subscription-lifecycle event Stripe sends
  * (`customer.subscription.updated/deleted/paused/resumed`) — all four are "here's the
  * subscription's current state, sync it," so there's no benefit to four near-duplicate handlers.
@@ -309,6 +405,12 @@ export async function dispatchWebhookEvent(db: Db, event: Stripe.Event, origin: 
       return handleSubscriptionSynced(db, event.data.object as Stripe.Subscription);
     case 'customer.updated':
       return handleCustomerUpdated(db, event.data.object as Stripe.Customer);
+    case 'charge.refunded':
+      return handleChargeRefunded(db, event.data.object as Stripe.Charge);
+    case 'charge.dispute.created':
+    case 'charge.dispute.updated':
+    case 'charge.dispute.closed':
+      return handleDisputeSynced(db, event.data.object as Stripe.Dispute);
     default:
       // Every other event type (account.updated, etc.) is stored for the record but has no
       // handler yet — see CLAUDE.md for what's Sprint 2+ scope.

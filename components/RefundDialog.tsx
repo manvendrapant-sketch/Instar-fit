@@ -5,25 +5,25 @@ import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
 import { FieldError, TextField } from '@/components/AuthFields';
 import { formatMoney } from '@/lib/offers';
-import { clientLabel, shortDate, type CoachPaymentSummary } from '@/lib/payoutDashboard';
+import { clientLabel, shortDate } from '@/lib/payoutDashboard';
+import type { CoachPaymentSummary, RefundPaymentResponse, RefundQuoteResponse } from '@/lib/commerce/types';
 import {
+  checkQuote,
   createRefund,
   fetchRefundQuote,
-  NOTE_MAX,
   REFUND_REASONS,
-  refundAmountCents,
+  requestedAmountCents,
   toRefundRequest,
   validateRefund,
   type RefundErrors,
   type RefundForm,
-  type RefundQuoteResponse,
   type RefundReason,
 } from '@/lib/refunds';
 
 /**
  * Refund a client payment (Sprint 5). Two steps so money never moves on one tap: choose the
- * amount and reason, then confirm against the server's quote of what the client gets back and
- * what comes out of the coach's balance.
+ * amount and reason, then confirm against the server's quote of what the client gets back, how
+ * much of Instar's fee is returned, and what comes out of the coach's balance.
  */
 export function RefundDialog({
   payment,
@@ -32,13 +32,13 @@ export function RefundDialog({
 }: {
   payment: CoachPaymentSummary;
   onClose: () => void;
-  onRefunded: (updated: CoachPaymentSummary, sample: boolean) => void;
+  onRefunded: (payment: CoachPaymentSummary, refund: RefundPaymentResponse) => void;
 }) {
   const { toast } = useAppState();
-  const [form, setForm] = useState<RefundForm>({ mode: 'full', amountInput: '', reason: '', note: '' });
+  const [form, setForm] = useState<RefundForm>({ mode: 'full', amountInput: '', reason: '' });
   const [errors, setErrors] = useState<RefundErrors>({});
   const [step, setStep] = useState<'choose' | 'confirm'>('choose');
-  const [quote, setQuote] = useState<{ data: RefundQuoteResponse; sample: boolean } | null>(null);
+  const [quote, setQuote] = useState<RefundQuoteResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const who = clientLabel(payment);
 
@@ -55,25 +55,31 @@ export function RefundDialog({
 
   async function review(e: FormEvent) {
     e.preventDefault();
-    const next = validateRefund(form, payment);
+    const next = validateRefund(form);
+    const cents = requestedAmountCents(form, payment);
     setErrors(next);
-    const cents = refundAmountCents(form, payment);
     if (Object.keys(next).length > 0 || cents == null) return;
     setBusy(true);
-    const result = await fetchRefundQuote(payment, cents);
+    const result = await fetchRefundQuote(payment.id, cents);
     setBusy(false);
     if (!result.ok) {
-      toast(result.message);
+      setErrors(result.fieldErrors);
+      if (!Object.keys(result.fieldErrors).length) toast(result.message);
       return;
     }
-    setQuote({ data: result.quote, sample: result.sample });
+    const problems = checkQuote(form, cents, result.quote);
+    if (Object.keys(problems).length) {
+      setErrors(problems);
+      return;
+    }
+    setQuote(result.quote);
     setStep('confirm');
   }
 
   async function confirm() {
     if (!quote) return;
     setBusy(true);
-    const result = await createRefund(payment, toRefundRequest(form, quote.data.amountCents));
+    const result = await createRefund(payment.id, toRefundRequest(form, quote));
     setBusy(false);
     if (!result.ok) {
       setErrors(result.fieldErrors);
@@ -81,7 +87,7 @@ export function RefundDialog({
       if (Object.keys(result.fieldErrors).length) setStep('choose');
       return;
     }
-    onRefunded(result.result.payment, result.sample);
+    onRefunded(payment, result.refund);
   }
 
   return (
@@ -94,8 +100,8 @@ export function RefundDialog({
         <span className="ins-label">{step === 'choose' ? 'Refund' : 'Confirm refund'}</span>
         <h2 id="refund-title">Refund {who}</h2>
         <p className="ins-refund-sub">
-          {payment.offerName} · paid {formatMoney(payment.amountCents)} on {shortDate(payment.paidAt)}
-          {payment.refundedCents > 0 && <> · {formatMoney(payment.refundedCents)} already refunded</>}
+          {payment.offerName} · paid {formatMoney(payment.totalAmountCents)} on {shortDate(payment.createdAt)}
+          {payment.refundedAmountCents > 0 && <> · {formatMoney(payment.refundedAmountCents)} already refunded</>}
         </p>
 
         {step === 'choose' ? (
@@ -106,13 +112,13 @@ export function RefundDialog({
                 {(['full', 'partial'] as const).map((m) => (
                   <label key={m} className={`ins-sf-seg-it ${form.mode === m ? 'on' : ''}`}>
                     <input type="radio" name="mode" value={m} checked={form.mode === m} onChange={() => set({ mode: m })} />
-                    {m === 'full' ? `Full · ${formatMoney(payment.refundableCents)}` : 'Part of it'}
+                    {m === 'full' ? (payment.refundedAmountCents > 0 ? 'Everything left' : 'Full refund') : 'Part of it'}
                   </label>
                 ))}
               </div>
             </fieldset>
 
-            {form.mode === 'partial' && (
+            {form.mode === 'partial' ? (
               <TextField
                 name="amount"
                 label="Amount to refund"
@@ -123,9 +129,10 @@ export function RefundDialog({
                 value={form.amountInput}
                 onChange={(e) => set({ amountInput: e.target.value })}
                 error={errors.amount}
-                hint={`Up to ${formatMoney(payment.refundableCents)}`}
                 autoFocus
               />
+            ) : (
+              <FieldError id="amount-err" message={errors.amount} />
             )}
 
             <label className="ins-field">
@@ -152,23 +159,6 @@ export function RefundDialog({
               <FieldError id="reason-err" message={errors.reason} />
             </label>
 
-            <label className="ins-field">
-              <span className="ins-field-l">
-                Note <span className="ins-sf-opt">Optional · only you see this</span>
-              </span>
-              <span className={`ins-textarea ${errors.note ? 'bad' : ''}`}>
-                <textarea
-                  name="note"
-                  rows={2}
-                  maxLength={NOTE_MAX + 50}
-                  placeholder="e.g. Moving abroad, offered a pause first"
-                  value={form.note}
-                  onChange={(e) => set({ note: e.target.value })}
-                />
-              </span>
-              <FieldError id="note-err" message={errors.note} />
-            </label>
-
             <button type="submit" className="ins-btn go ins-auth-submit" disabled={busy}>
               {busy ? 'Checking…' : 'Review refund'}
               {!busy && <Icon name="arrow" />}
@@ -177,35 +167,27 @@ export function RefundDialog({
         ) : (
           quote && (
             <div className="ins-auth-form">
-              {quote.sample && <p className="ins-pd-sample">Sample figures: refunds aren’t connected yet, so nothing will actually be refunded.</p>}
               <div className="ins-checkout-breakdown ins-num" aria-live="polite">
                 <div className="ins-checkout-row">
-                  <span>Refund</span>
-                  <span>{formatMoney(quote.data.amountCents)}</span>
+                  <span>{who} gets back</span>
+                  <span>{formatMoney(quote.clientReceivesCents)}</span>
                 </div>
                 <div className="ins-checkout-row muted">
-                  <span>{who} gets back</span>
-                  <span>{formatMoney(quote.data.clientReceivesCents)}</span>
+                  <span>Instar’s fee, returned</span>
+                  <span>{formatMoney(quote.platformFeeReversedCents)}</span>
                 </div>
                 <div className="ins-checkout-row total">
                   <span>Comes out of your balance</span>
-                  <span>{formatMoney(quote.data.fromYourBalanceCents)}</span>
+                  <span>{formatMoney(quote.coachBalanceImpactCents)}</span>
                 </div>
               </div>
-              {quote.data.notes.length > 0 && (
-                <ul className="ins-refund-notes">
-                  {quote.data.notes.map((n) => (
-                    <li key={n}>{n}</li>
-                  ))}
-                </ul>
-              )}
               <p className="ins-refund-sub">
                 Reason: {REFUND_REASONS[form.reason as RefundReason]}. It usually takes 5–10 business days to reach their card.
                 This can’t be undone.
               </p>
               <div className="ins-actions">
                 <button type="button" className="ins-btn ins-btn-bad ins-refund-go" onClick={confirm} disabled={busy} aria-busy={busy}>
-                  {busy ? 'Refunding…' : `Refund ${formatMoney(quote.data.clientReceivesCents)}`}
+                  {busy ? 'Refunding…' : `Refund ${formatMoney(quote.clientReceivesCents)}`}
                 </button>
                 <button type="button" className="ins-btn quiet" onClick={() => setStep('choose')} disabled={busy}>
                   Back

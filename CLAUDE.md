@@ -332,25 +332,20 @@ this needs a real signup attempt against the live site to know for sure, same as
   present) into `AppStateProvider`, which otherwise fired `/api/offers`, `/api/coach/*`,
   `/api/storefront` on every page, including `/login`, `/signup` and the public storefront, where
   they 401 and toast an error at a visitor who isn't a coach.
-- **Payout dashboard (Sprint 5, Pari's side)** on `feat/storefront-payout-dashboard`:
-  `/business/payouts` becomes the money view once Connect is ready (`components/PayoutDashboard.tsx`,
-  `lib/payoutDashboard.ts`). It calls a **proposed, not-yet-built** `GET /api/coach/payouts/dashboard`
-  whose shape (`PayoutDashboardResponse`: balance, schedule, recent payouts, recent payments) lives in
-  `lib/payoutDashboard.ts` rather than `lib/commerce/types.ts` until Manvendra agrees it; move it
-  there when the route lands. Until then an HTTP 404 from that route shows sample data under a
-  visible "Sample data" banner; any other failure (API error, offline) shows a real error, never
-  sample money. Every figure, including per-payment `netCents` (what the coach keeps after fee and
-  refunds), is server-computed; the page only formats.
-- **Refunds (Sprint 5, Pari's side)** on `feat/storefront-refunds` (stacked on the payout-dashboard
-  branch): a Refund action on each refundable payment row opens `components/RefundDialog.tsx`, two
-  steps (amount/reason/private note → confirm against the server's quote). Calls **proposed**
-  `GET /api/coach/payments/[id]/refund-quote?amountCents=` (`RefundQuoteResponse`: client gets back,
-  comes out of the coach's balance, plain-English `notes`) and `POST /api/coach/payments/[id]/refund`
-  (`CreateRefundRequest` `{amountCents, reason, note}` → `CreateRefundResponse` with the updated
-  `CoachPaymentSummary`), shapes in `lib/refunds.ts` until agreed. `CoachPaymentSummary` also gained
-  a server-computed `refundableCents`. Same 404-only sample fallback as the dashboard; sample mode
-  echoes the amount with no fee maths, because who absorbs Instar's 2% and the service fee on a
-  refund is still an open decision for Manvendra.
+- **Payout dashboard + refunds (Sprint 5, Pari's side)**, both merged to `main`. The dashboard is
+  `/business/payouts` once Connect is ready (`components/PayoutDashboard.tsx`, `lib/payoutDashboard.ts`),
+  on Manvendra's four real endpoints (see "Payout dashboard UI merged and reconciled" below). Refunds:
+  a Refund action on each `succeeded`/`partially_refunded` payment row opens
+  `components/RefundDialog.tsx` — two steps (full/partial + reason → confirm against
+  `GET /api/coach/payments/[id]/refund-quote`'s `clientReceivesCents`/`platformFeeReversedCents`/
+  `coachBalanceImpactCents`), then `POST .../refund` with the server-quoted amount. The browser never
+  works out "what's left to refund": a full refund asks the quote for `totalAmountCents` and the
+  server caps it (`maxRefundableCents`); a partial one over that cap is flagged from the quote's own
+  figure (`lib/refunds.ts`'s `checkQuote`). The refund response doesn't return an updated payment
+  (the `charge.refunded` webhook writes the refund row), so the row shows "Processing" until
+  the next load. The earlier proposed shapes (private note, `refundableCents`, 404 sample fallback)
+  were dropped when reconciling with the real API. Needs `charge.refunded` subscribed on the Stripe
+  webhook endpoint (and migration 0006 applied) before a refund ever shows as refunded.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
@@ -1339,3 +1334,178 @@ file, deleted before finishing): confirmed a canceled subscription plus a progra
 together, a purchase-only client (no subscriptions at all) renders correctly with no stray empty
 state, and the coach's two-table view (one subscription, one program purchase, different clients)
 renders both sections independently.
+
+## Sprint 5 — refunds, disputes, payouts (2026-09-28, branch continues on `main`)
+
+Manvendra shared a suggested API/type table for `Workplan-Manvendra.md`'s Sprint 5 ("Refunds,
+disputes, payouts") and asked to settle three open decisions, publish the shared types, then build
+in this order: balance + payouts + payments first, then refunds, then disputes. All three decisions
+were presented with a recommended default and Manvendra picked the recommendation each time — full
+rationale in `Decisions.md`'s "Sprint 5 decisions" entry:
+1. **Refund + platform fee**: refunded proportionally via Stripe's own `refund_application_fee:
+   true` (paired with the required `reverse_transfer: true` for a destination charge) — Stripe does
+   the proportional math itself.
+2. **Dispute evidence**: draft-and-submit, matching Stripe's own `disputes.update()` shape exactly
+   (`submit: false` to save a draft, `submit: true` to finalize — Stripe's own dispute object *is*
+   the draft, no local draft table).
+3. **Balance/payouts**: read live from Stripe Connect (`balance.retrieve`, `accounts.retrieve`,
+   `payouts.list`, all `{stripeContext: connectedAccountId}`), not written into Instar's own ledger
+   — sidesteps standing up a second, Connect-scoped webhook endpoint (payouts fire on the connected
+   account, not the platform's ordinary webhook) purely to keep a local table in sync with numbers
+   Stripe already serves live.
+
+**Confirmed while reading the pinned Stripe SDK's own `.d.ts` files (not assumed)**: because this
+app uses destination charges, Charge/PaymentIntent/Refund/Dispute objects all live on the
+**platform's own account** — no `stripeContext` needed for any of those calls, only for
+Balance/Payouts, which are the connected account's own data.
+
+**Schema**: one migration, `0006_fat_rockslide.sql` — adds a unique index on
+`refunds.stripe_refund_id` (needed for `onConflictDoNothing` dedupe in the new `charge.refunded`
+webhook handler). Same unconfirmed/unapplied situation as every migration since 0000 — handed off
+to Manvendra the same way (self-contained idempotent SQL, sha256 + bookkeeping insert, pasted into
+Supabase's SQL Editor).
+
+**New types** (`lib/commerce/types.ts`): `CoachBalanceResponse`, `PayoutScheduleResponse`,
+`CoachPayoutSummary`/`CoachPayoutsResponse`, `CoachPaymentSummary`/`CoachPaymentsResponse`,
+`RefundQuoteResponse`, `RefundPaymentRequest`/`RefundPaymentResponse`, `DisputeEvidenceFields`,
+`CoachDisputeSummary`/`CoachDisputesResponse`, `CoachDisputeDetailResponse`,
+`SaveDisputeEvidenceRequest`, `UploadEvidenceFileResponse`.
+
+**Balance + payouts** (`lib/commerce/payouts.ts`, all coach-authenticated):
+- `GET /api/coach/balance` — live Stripe balance for the coach's connected account plus
+  `revenueThisMonthCents`, the one number Stripe doesn't track for us (summed from our own
+  `payments` rows for the current calendar month — the only DB read in this trio).
+- `GET /api/coach/payout-schedule` — `stripe.accounts.retrieve(...).settings.payouts.schedule`.
+- `GET /api/coach/payouts` — `stripe.payouts.list({limit: 25}, {stripeContext})`.
+
+**Payments list** (`lib/commerce/payments.ts`): `GET /api/coach/payments` — joins
+`payments`+`clients`+`offers` (left join, so a deleted offer doesn't drop the row), then a second
+query aggregating `refunds` by `paymentId` (status `succeeded` only) to compute
+`refundedAmountCents`/derive `refunded`/`partially_refunded` status client-side of the DB, not via
+a second round trip per row.
+
+**Refunds** (`lib/commerce/refunds.ts`):
+- `GET /api/coach/payments/[id]/refund-quote?amountCents=` — previews `clientReceivesCents`,
+  `platformFeeReversedCents` (proportional to the requested amount, exact match on a full refund
+  rather than a rounding-derived approximation), and `coachBalanceImpactCents`, clamped to what's
+  actually left to refund.
+- `POST /api/coach/payments/[id]/refund` — creates the Stripe Refund
+  (`refund_application_fee: true`, `reverse_transfer: true`) but **never writes to `refunds` or
+  `payments` itself** — same webhook-as-sole-writer convention as checkout — only the new
+  `charge.refunded` handler does that, so a refund created any other way (Stripe Dashboard, a
+  future admin tool) is still captured correctly.
+- `webhookHandlers.ts` gained `handleChargeRefunded` — dedupes each of the charge's refunds on
+  `stripeRefundId` (the new unique index), then rolls the payment's own `status` to `refunded` or
+  `partially_refunded` once the refunded total is known.
+
+**Disputes** (`lib/commerce/disputes.ts`):
+- `GET /api/coach/disputes` — list, DB-only (status/reason/amount/due-by already synced by webhook).
+- `GET /api/coach/disputes/[id]` — DB row (ownership-scoped via `findOwnDispute`) combined with a
+  live `stripe.disputes.retrieve()` for the evidence fields + `submission_count`/`past_due` (not
+  persisted locally — Stripe is the source of truth for what's currently staged).
+- `PATCH .../evidence` (save draft, `submit: false`) / `POST .../evidence` (submit, `submit: true`)
+  — one shared internal `updateEvidence()`, `submit` is the only thing that differs. Evidence field
+  names are translated camelCase↔snake_case via a hand-written map; `acceptedEvidenceFieldsForReason`
+  is a curated (not exhaustive — Stripe doesn't expose this as data) reason→relevant-fields lookup
+  with a general fallback, so the UI only shows fields that actually apply to *this* dispute's
+  reason.
+- `POST .../files` — accepts `multipart/form-data`, converts the `File` to a `Buffer`, calls
+  `stripe.files.create({file: {data, name, type}, purpose: 'dispute_evidence'})`, returns the
+  Stripe file id for the evidence PATCH/POST to reference.
+- `webhookHandlers.ts` gained `handleDisputeSynced`, routed from `charge.dispute.created/updated/
+  closed` — upserts the `disputes` row (status, reason, amount, `evidenceDueBy`) and rolls the
+  linked payment's `status` to `disputed` (open) or back to `succeeded`/`refunded` once Stripe
+  reports a terminal outcome (`won`/`lost`/`warning_closed`/`prevented`).
+
+**All new modules/routes shipped with tests** (standing rule): `lib/commerce/payouts.test.ts`,
+`lib/commerce/payments.test.ts`, `lib/commerce/refunds.test.ts`, `lib/commerce/disputes.test.ts`,
+and a `route.test.ts` per new route (balance, payout-schedule, payouts, payments, refund-quote,
+refund, disputes, disputes/[id], disputes/[id]/evidence, disputes/[id]/files), plus extended
+`webhookHandlers.test.ts` coverage for `handleChargeRefunded`/`handleDisputeSynced` and their new
+dispatch cases. Verified: `npx tsc --noEmit`, `npx eslint .`, `npm test` (73 suites, 555 tests) all
+clean; `npm run build` succeeds with `DATABASE_URL`/`AUTH_JWT_SECRET`/`STRIPE_SECRET_KEY` unset, and
+all ten new routes show up in the build's route list.
+
+**Not done / deliberately out of scope for this pass**:
+- No live-Stripe or live-DB verification — same standing gap as every pass in this file (this
+  sandbox reaches neither Postgres nor Stripe's API directly; only unit tests with `getDb`/
+  `getStripe` mocked ran).
+- No coach-facing UI for any of this (balance/payouts dashboard, payments table, refund button,
+  dispute inbox/evidence form) — this pass is the backend only, ahead of Pari's UI per the
+  established "mocks now, wire up the real thing later" pattern; the routes are ready for her to
+  call whenever that UI is built.
+- No "alert the coach" notification (email/push) for a new `charge.dispute.created` — the dispute
+  is only visible if the coach checks `/business` (once a page exists) or the Stripe Dashboard.
+  Given the 7-21 day response window Stripe usually gives, silent-until-checked is an accepted gap
+  for this pass, not a decision that it doesn't matter.
+- `duplicate` and several other Stripe dispute reasons don't have a curated evidence-field mapping
+  — they fall back to the general field set, which is a reasonable default but not
+  reason-specific like the seven reasons that do have one.
+- Refund/dispute amounts on a subscription's recurring invoice payments follow the same
+  known-approximation as checkout itself (Sprint 3): Stripe's Connect API can only take
+  `application_fee_percent` for a subscription, not an exact amount, so the fee reversed on a
+  partial refund of a subscription payment is Stripe's own proportional computation of that
+  percentage, not a value this app independently verifies against `computeCheckoutBreakdown`.
+
+### Payout dashboard UI merged and reconciled with the Sprint 5 backend (2026-09-28)
+
+Pari's `feat/storefront-payout-dashboard` branch (merged into `main`) turned out to already have a
+full payout dashboard UI (`components/PayoutDashboard.tsx`, `lib/payoutDashboard.ts`,
+`app/styles/payoutDashboard.css`) — built independently against a **proposed, not-yet-built**
+`GET /api/coach/payouts/dashboard` returning one combined response, with a labelled sample-data
+fallback on 404 so the screen could be reviewed before any backend existed.
+
+Asked which was the better shape going forward: one composite endpoint, or the separate
+`/api/coach/{balance,payout-schedule,payouts,payments}` endpoints Sprint 5 had just shipped.
+**Decision: keep the separate endpoints, adapt the frontend to them** — matches every other
+resource in this app (offers, clients, disputes, storefront are all separate `GET`s, never a
+page-specific composite), the Stripe calls behind balance/schedule/payouts are independently slow
+regardless of how many routes trigger them (a composite endpoint hides that latency, it doesn't
+reduce it), and a composite endpoint would have meant maintaining a second, translated-field-name
+contract alongside the real one in `types.ts` for one page's convenience.
+
+**Backend additions to close the real gaps** (fields the UI wanted that nothing computed yet):
+- `CoachBalanceResponse`: `revenueThisMonthCents` (gross) replaced with `earnedThisMonthCents` +
+  `earnedLastMonthCents` — net of Instar's platform fee and refunds, i.e. what the coach actually
+  keeps, not what the client paid. New `lib/commerce/payments.ts`'s `sumNetEarnedCents(db, coachId,
+  start, end)` computes it (payments in range, `!= 'failed'`, minus each one's succeeded refunds);
+  `lib/commerce/payouts.ts`'s `monthRangeUtc(monthsAgo)` replaces the old `startOfCurrentMonthUtc`
+  to give `[start, end)` bounds for both this month and last in one shape.
+- `PayoutScheduleResponse`: gained `weeklyAnchor`/`monthlyAnchor` (only one is ever set, matching
+  which `interval` is active) — straight off `Stripe.Account.Settings.Payouts.Schedule`, no
+  computation involved.
+- `CoachPaymentSummary`: gained `netCents` (`totalAmountCents - platformFeeCents -
+  refundedAmountCents`, floored at 0) — computed server-side from the full `payments` row
+  `toCoachPaymentSummary` already receives, per the standing "never compute money in the browser"
+  rule; no route change needed, `platformFeeCents` was already being selected.
+- **`nextPayout` is deliberately NOT a backend field.** It's derived purely client-side
+  (`lib/payoutDashboard.ts`'s `findNextPayout`) from the payouts list the dashboard already fetches
+  — the soonest `pending`/`in_transit` payout. Computing it server-side would have meant either a
+  second `payouts.list` Stripe call in the balance route (duplicating data the payouts route already
+  fetches) or coupling the two routes together; a plain client-side lookup over data already in
+  hand needed neither.
+
+**Frontend**: `lib/payoutDashboard.ts` rewritten — `fetchPayoutDashboard()` now calls the four real
+endpoints via `Promise.all`, returns the first failure's message on any one failing, and assembles
+`PayoutDashboardData` (the real, non-proposed composite the component consumes) instead of hitting
+a single endpoint with a 404-triggered sample-data fallback; that fallback and its `SAMPLE_DASHBOARD`
+constant are gone entirely — the real routes exist, so a failure now means something real broke, not
+"not built yet." Display helpers (`scheduleLabel`, `delayLabel`, `shortDate`, `arrivalLabel`,
+`clientLabel`, `isEmptyDashboard`, the `PAYOUT_STATUS`/`PAYMENT_STATUS` chip/label maps) carried over
+unchanged — the enum values already matched the real contract exactly.
+`components/PayoutDashboard.tsx` had its few field-name mismatches fixed (`p.amountCents` →
+`p.totalAmountCents`, `p.refundedCents` → `p.refundedAmountCents`, `p.paidAt` → `p.createdAt` for
+payments; `d.balance.nextPayout` → `d.nextPayout`) and the sample-data banner removed.
+
+**Verified**: `tsc --noEmit`, `eslint .`, `npm test` (74 suites, 574 tests), `npm run build` (six
+lazy-client env vars unset) all clean. Real dev server, Playwright, hand-crafted signed coach
+session cookie + mocked `/api/coach/{onboarding-status,profile}`, `/api/offers`, `/api/storefront`
+and all four payout endpoints (same technique as every other UI verification in this file):
+confirmed the full dashboard (next-payout hero, earned/pending/available stats, recent payments with
+correct net/refunded amounts and status chips, payouts list, schedule card), the empty state, and
+the error/retry state, all screenshotted.
+
+**Not done**: no live-Stripe or live-DB verification (same standing gap as every pass in this file).
+The "Manage on Stripe" / "Change on Stripe" buttons still just toast a placeholder — linking them to
+a real Stripe Express dashboard link (if Stripe exposes one for an Express account short of the full
+login link flow) wasn't part of this reconciliation pass.

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "refunds_stripe_idx" ON "refunds" USING btree ("stripe_refund_id");

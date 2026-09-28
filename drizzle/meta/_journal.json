@@ -43,6 +43,13 @@
       "when": 1790502568701,
       "tag": "0005_square_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790589635961,
+      "tag": "0006_fat_rockslide",
+      "breakpoints": true
     }
   ]
 }

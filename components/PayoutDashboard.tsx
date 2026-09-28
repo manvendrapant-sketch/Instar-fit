@@ -7,6 +7,7 @@ import { useAppState } from '@/lib/store';
 import { formatMoney } from '@/lib/offers';
 import { LoadingSection } from '@/components/LoadingSection';
 import { STOREFRONT_PATH } from '@/lib/storefront';
+import type { CoachPaymentSummary, CoachPayoutSummary, RefundPaymentResponse } from '@/lib/commerce/types';
 import { RefundDialog } from '@/components/RefundDialog';
 import { isRefundable } from '@/lib/refunds';
 import {
@@ -19,10 +20,8 @@ import {
   PAYOUT_STATUS,
   scheduleLabel,
   shortDate,
-  type CoachPaymentSummary,
   type DashboardResult,
-  type PayoutDashboardResponse,
-  type PayoutSummary,
+  type PayoutDashboardData,
 } from '@/lib/payoutDashboard';
 
 /**
@@ -33,6 +32,9 @@ export function PayoutDashboard() {
   const { toast } = useAppState();
   const [state, setState] = useState<DashboardResult | null>(null);
   const [refunding, setRefunding] = useState<CoachPaymentSummary | null>(null);
+  // Payments with a refund sent to Stripe but not yet confirmed back (the charge.refunded webhook
+  // is what updates the row), so their Refund button can't be pressed twice meanwhile.
+  const [processing, setProcessing] = useState<ReadonlySet<string>>(new Set());
 
   const load = useCallback(() => {
     setState(null);
@@ -61,27 +63,18 @@ export function PayoutDashboard() {
   const d = state.data;
   const manage = () => toast('This will open your Stripe Express dashboard');
 
-  // Replace the refunded payment's row with the server's updated version, in place.
-  function onRefunded(updated: CoachPaymentSummary, sample: boolean) {
+  function onRefunded(payment: CoachPaymentSummary, refund: RefundPaymentResponse) {
     setRefunding(null);
-    setState((s) =>
-      s && s.ok ? { ...s, data: { ...s.data, payments: s.data.payments.map((p) => (p.id === updated.id ? updated : p)) } } : s,
-    );
-    toast(
-      sample
-        ? 'Sample only: nothing was refunded.'
-        : `Refund sent to ${clientLabel(updated)}. It usually reaches their card in 5–10 business days.`,
-    );
+    if (refund.status === 'failed') {
+      toast('Stripe couldn’t process that refund. Nothing was sent. Please try again.');
+      return;
+    }
+    setProcessing((s) => new Set(s).add(payment.id));
+    toast(`Refund of ${formatMoney(refund.amountCents)} sent to ${clientLabel(payment)}. It usually reaches their card in 5–10 business days.`);
   }
 
   return (
     <div className="ins-pd">
-      {state.sample && (
-        <p className="ins-pd-sample" role="note">
-          <b>Sample data.</b> These aren’t your real numbers: payout reporting isn’t connected yet.
-        </p>
-      )}
-
       {isEmptyDashboard(d) ? (
         <EmptyDashboard />
       ) : (
@@ -96,7 +89,7 @@ export function PayoutDashboard() {
           </div>
 
           <div className="ins-pd-grid">
-            <PaymentsPanel payments={d.payments} onRefund={setRefunding} />
+            <PaymentsPanel payments={d.payments} processing={processing} onRefund={setRefunding} />
             <div className="ins-pd-side">
               <PayoutsPanel payouts={d.payouts} />
               <section className="ins-panel ins-pd-card ins-in d3" aria-labelledby="pd-sched">
@@ -132,8 +125,8 @@ export function PayoutDashboard() {
   );
 }
 
-function NextPayoutCard({ d }: { d: PayoutDashboardResponse }) {
-  const next = d.balance.nextPayout;
+function NextPayoutCard({ d }: { d: PayoutDashboardData }) {
+  const next = d.nextPayout;
   return (
     <section className="ins-panel ins-money ins-pd-hero ins-in d1" aria-label={next ? 'Next payout' : 'Available'}>
       <span className="ins-label">{next ? 'Next payout' : 'Available to pay out'}</span>
@@ -161,7 +154,15 @@ function Stat({ label, cents, note }: { label: string; cents: number; note: stri
   );
 }
 
-function PaymentsPanel({ payments, onRefund }: { payments: CoachPaymentSummary[]; onRefund: (p: CoachPaymentSummary) => void }) {
+function PaymentsPanel({
+  payments,
+  processing,
+  onRefund,
+}: {
+  payments: CoachPaymentSummary[];
+  processing: ReadonlySet<string>;
+  onRefund: (p: CoachPaymentSummary) => void;
+}) {
   return (
     <section className="ins-panel ins-pd-card ins-in d2" aria-labelledby="pd-payments">
       <div className="ins-pd-card-h">
@@ -179,17 +180,19 @@ function PaymentsPanel({ payments, onRefund }: { payments: CoachPaymentSummary[]
                 <div className="ins-pd-who">
                   <b>{clientLabel(p)}</b>
                   <span>
-                    {p.offerName} · {shortDate(p.paidAt)}
+                    {p.offerName} · {shortDate(p.createdAt)}
                   </span>
                 </div>
                 <div className="ins-pd-amt">
-                  <span className="ins-num">{formatMoney(p.amountCents)}</span>
+                  <span className="ins-num">{formatMoney(p.totalAmountCents)}</span>
                   <b className="ins-num">{formatMoney(p.netCents)}</b>
-                  {p.refundedCents > 0 && <span className="ins-pd-muted ins-num">−{formatMoney(p.refundedCents)} refunded</span>}
+                  {p.refundedAmountCents > 0 && <span className="ins-pd-muted ins-num">−{formatMoney(p.refundedAmountCents)} refunded</span>}
                 </div>
                 <span className={`ins-chip ${st.chip}`}>{st.label}</span>
                 <span className="ins-pd-act">
-                  {isRefundable(p) ? (
+                  {processing.has(p.id) ? (
+                    <span className="ins-pd-muted" title="Refund sent. Waiting for Stripe to confirm it.">Processing</span>
+                  ) : isRefundable(p) ? (
                     <button type="button" className="ins-btn quiet" onClick={() => onRefund(p)} aria-label={`Refund ${clientLabel(p)}`}>
                       Refund
                     </button>
@@ -206,7 +209,7 @@ function PaymentsPanel({ payments, onRefund }: { payments: CoachPaymentSummary[]
   );
 }
 
-function PayoutsPanel({ payouts }: { payouts: PayoutSummary[] }) {
+function PayoutsPanel({ payouts }: { payouts: CoachPayoutSummary[] }) {
   return (
     <section className="ins-panel ins-pd-card ins-in d3" aria-labelledby="pd-payouts">
       <h2 id="pd-payouts">Payouts to your bank</h2>

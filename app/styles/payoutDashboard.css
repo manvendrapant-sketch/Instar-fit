@@ -205,13 +205,6 @@
   flex: 1;
   justify-content: center;
 }
-.ins-refund-notes {
-  margin: -8px 0 14px;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--muted);
-}
 .ins-refund-box .ins-auth-form > .ins-refund-sub {
   margin-bottom: 4px;
 }

@@ -1,111 +1,141 @@
-import { SAMPLE_DASHBOARD, type CoachPaymentSummary } from './payoutDashboard';
+import type { CoachPaymentSummary, RefundQuoteResponse } from './commerce/types';
 import {
+  checkQuote,
   createRefund,
   fetchRefundQuote,
   isRefundable,
-  NOTE_MAX,
-  refundAmountCents,
   refundPath,
   refundQuotePath,
   REFUND_REASONS,
-  sampleRefund,
+  requestedAmountCents,
   toRefundRequest,
   validateRefund,
   type RefundForm,
 } from './refunds';
 
-const paid: CoachPaymentSummary = SAMPLE_DASHBOARD.payments[0]; // $204.97, nothing refunded yet
-const form = (over: Partial<RefundForm> = {}): RefundForm => ({ mode: 'full', amountInput: '', reason: 'requested_by_customer', note: '', ...over });
-const res = (status: number, body: unknown) => jest.fn(async () => ({ status, json: async () => body }) as unknown as Response);
+const paid: CoachPaymentSummary = {
+  id: 'pay_1',
+  clientName: 'Leah Kim',
+  clientEmail: 'leah@example.com',
+  offerName: '1:1 Coaching',
+  currency: 'usd',
+  totalAmountCents: 20_497,
+  netCents: 19_502,
+  refundedAmountCents: 0,
+  status: 'succeeded',
+  createdAt: '2026-09-20T12:00:00.000Z',
+};
+const quote = (over: Partial<RefundQuoteResponse> = {}): RefundQuoteResponse => ({
+  currency: 'usd',
+  maxRefundableCents: 20_497,
+  clientReceivesCents: 20_497,
+  platformFeeReversedCents: 398,
+  coachBalanceImpactCents: 20_099,
+  ...over,
+});
+const form = (over: Partial<RefundForm> = {}): RefundForm => ({ mode: 'full', amountInput: '', reason: 'requested_by_customer', ...over });
 
-describe('refundability', () => {
-  it('follows the server-provided refundable amount', () => {
-    expect(isRefundable({ refundableCents: 1 })).toBe(true);
-    expect(isRefundable({ refundableCents: 0 })).toBe(false);
-    expect(SAMPLE_DASHBOARD.payments.filter(isRefundable).map((p) => p.status)).toEqual(['succeeded', 'succeeded']);
+const fetchMock = jest.fn();
+beforeEach(() => {
+  fetchMock.mockReset();
+  global.fetch = fetchMock as unknown as typeof fetch;
+});
+const respond = (body: unknown) => fetchMock.mockResolvedValueOnce({ json: async () => body } as Response);
+
+describe('isRefundable', () => {
+  it('allows paid and part-refunded payments only', () => {
+    expect(isRefundable({ status: 'succeeded' })).toBe(true);
+    expect(isRefundable({ status: 'partially_refunded' })).toBe(true);
+    expect(isRefundable({ status: 'refunded' })).toBe(false);
+    expect(isRefundable({ status: 'disputed' })).toBe(false);
+    expect(isRefundable({ status: 'failed' })).toBe(false);
+  });
+});
+
+describe('requestedAmountCents', () => {
+  it('asks for the whole payment on a full refund and lets the server cap it', () => {
+    const partlyRefunded: CoachPaymentSummary = { ...paid, refundedAmountCents: 5_000 };
+    expect(requestedAmountCents(form(), partlyRefunded)).toBe(20_497);
+  });
+  it('parses the partial box, or returns null', () => {
+    expect(requestedAmountCents(form({ mode: 'partial', amountInput: '49.99' }), paid)).toBe(4_999);
+    expect(requestedAmountCents(form({ mode: 'partial', amountInput: 'abc' }), paid)).toBeNull();
   });
 });
 
 describe('validateRefund', () => {
   it('accepts a full refund with a reason', () => {
-    expect(validateRefund(form(), paid)).toEqual({});
-    expect(refundAmountCents(form(), paid)).toBe(paid.refundableCents);
+    expect(validateRefund(form())).toEqual({});
   });
-
   it('requires a reason', () => {
-    expect(validateRefund(form({ reason: '' }), paid).reason).toBeDefined();
+    expect(validateRefund(form({ reason: '' })).reason).toBeDefined();
   });
-
-  it('checks the partial amount against what can still be refunded', () => {
-    expect(validateRefund(form({ mode: 'partial', amountInput: '' }), paid).amount).toMatch(/how much/);
-    expect(validateRefund(form({ mode: 'partial', amountInput: 'abc' }), paid).amount).toMatch(/like 50/);
-    expect(validateRefund(form({ mode: 'partial', amountInput: '0' }), paid).amount).toMatch(/at least/);
-    expect(validateRefund(form({ mode: 'partial', amountInput: '204.98' }), paid).amount).toBe('You can refund up to $204.97.');
-    expect(validateRefund(form({ mode: 'partial', amountInput: '204.97' }), paid)).toEqual({});
-    expect(refundAmountCents(form({ mode: 'partial', amountInput: '50' }), paid)).toBe(5000);
+  it('checks the partial amount parses and is positive', () => {
+    expect(validateRefund(form({ mode: 'partial', amountInput: '' })).amount).toMatch(/how much/);
+    expect(validateRefund(form({ mode: 'partial', amountInput: '5.555' })).amount).toMatch(/like 50/);
+    expect(validateRefund(form({ mode: 'partial', amountInput: '0' })).amount).toMatch(/at least/);
+    expect(validateRefund(form({ mode: 'partial', amountInput: '50' }))).toEqual({});
   });
-
-  it('limits the note', () => {
-    expect(validateRefund(form({ note: 'a'.repeat(NOTE_MAX + 1) }), paid).note).toBeDefined();
-  });
-
-  it('builds the request with a trimmed note or null', () => {
-    expect(toRefundRequest(form({ note: '  ' }), 100)).toEqual({ amountCents: 100, reason: 'requested_by_customer', note: null });
-    expect(toRefundRequest(form({ note: ' Moved away ' }), 100).note).toBe('Moved away');
+  it('has a label for every reason', () => {
     expect(Object.keys(REFUND_REASONS)).toEqual(['requested_by_customer', 'duplicate', 'fraudulent']);
   });
 });
 
-describe('fetchRefundQuote', () => {
-  const quote = { currency: 'usd', amountCents: 5000, clientReceivesCents: 5000, fromYourBalanceCents: 4900, notes: [] };
-
-  it('calls the quote route with the amount', async () => {
-    const f = res(200, { success: true, message: 'ok', data: quote });
-    await expect(fetchRefundQuote(paid, 5000, f)).resolves.toEqual({ ok: true, quote, sample: false });
-    expect(f).toHaveBeenCalledWith(refundQuotePath(paid.id, 5000));
-    expect(refundQuotePath('a b', 1)).toBe('/api/coach/payments/a%20b/refund-quote?amountCents=1');
+describe('checkQuote', () => {
+  it('passes a quote that covers what was asked', () => {
+    expect(checkQuote(form(), 20_497, quote())).toEqual({});
+    expect(checkQuote(form({ mode: 'partial', amountInput: '50' }), 5_000, quote({ clientReceivesCents: 5_000 }))).toEqual({});
   });
+  it('flags a partial amount over what is left, using the server figure', () => {
+    const q = quote({ maxRefundableCents: 3_000, clientReceivesCents: 3_000 });
+    expect(checkQuote(form({ mode: 'partial', amountInput: '50' }), 5_000, q).amount).toBe('You can refund up to $30.');
+  });
+  it('lets a full refund take whatever is left', () => {
+    expect(checkQuote(form(), 20_497, quote({ maxRefundableCents: 3_000, clientReceivesCents: 3_000 }))).toEqual({});
+  });
+  it('flags a payment with nothing left', () => {
+    expect(checkQuote(form(), 20_497, quote({ maxRefundableCents: 0, clientReceivesCents: 0 })).amount).toMatch(/already been fully refunded/);
+  });
+});
 
-  it('uses a labelled sample only on 404, and errors otherwise', async () => {
-    const sample = await fetchRefundQuote(paid, 5000, res(404, {}));
-    expect(sample).toMatchObject({ ok: true, sample: true, quote: { amountCents: 5000 } });
-    await expect(fetchRefundQuote(paid, 5000, res(500, { success: false, code: 'X', message: 'Nope' }))).resolves.toEqual({ ok: false, message: 'Nope' });
-    await expect(fetchRefundQuote(paid, 5000, jest.fn(async () => { throw new Error('offline'); }))).resolves.toMatchObject({ ok: false });
+describe('toRefundRequest', () => {
+  it('sends the server-quoted amount and the reason', () => {
+    expect(toRefundRequest(form(), quote({ clientReceivesCents: 3_000 }))).toEqual({ amountCents: 3_000, reason: 'requested_by_customer' });
+  });
+});
+
+describe('fetchRefundQuote', () => {
+  it('calls the quote route and returns the server figures', async () => {
+    respond({ success: true, message: 'ok', data: quote() });
+    await expect(fetchRefundQuote('pay_1', 20_497)).resolves.toEqual({ ok: true, quote: quote() });
+    expect(fetchMock.mock.calls[0][0]).toBe(refundQuotePath('pay_1', 20_497));
+    expect(refundQuotePath('pay/1', 5)).toBe('/api/coach/payments/pay%2F1/refund-quote?amountCents=5');
+  });
+  it('maps field errors and passes other failures through', async () => {
+    respond({ success: false, code: 'VALIDATION_ERROR', message: 'Fix it', fields: { amountCents: 'Required.' } });
+    await expect(fetchRefundQuote('pay_1', 1)).resolves.toEqual({ ok: false, message: 'Fix it', fieldErrors: { amount: 'Required.' } });
+    respond({ success: false, code: 'NOT_FOUND', message: 'Payment not found.' });
+    await expect(fetchRefundQuote('pay_1', 1)).resolves.toEqual({ ok: false, message: 'Payment not found.', fieldErrors: {} });
+  });
+  it('returns an error, never sample figures, when the request fails', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const r = await fetchRefundQuote('pay_1', 1);
+    expect(r.ok).toBe(false);
   });
 });
 
 describe('createRefund', () => {
-  it('posts the request and returns the updated payment', async () => {
-    const data = { payment: { ...paid, status: 'refunded' }, refund: { id: 're_1', amountCents: 100, status: 'succeeded' } };
-    const f = res(200, { success: true, message: 'ok', data });
-    const req = { amountCents: 100, reason: 'duplicate' as const, note: null };
-    await expect(createRefund(paid, req, f)).resolves.toEqual({ ok: true, result: data, sample: false });
-    expect(f).toHaveBeenCalledWith(refundPath(paid.id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
+  it('POSTs the request and returns Stripe’s refund', async () => {
+    respond({ success: true, message: 'Refund started.', data: { id: 're_1', status: 'pending', amountCents: 3_000 } });
+    const r = await createRefund('pay_1', { amountCents: 3_000, reason: 'duplicate' });
+    expect(r).toEqual({ ok: true, refund: { id: 're_1', status: 'pending', amountCents: 3_000 } });
+    const [path, init] = fetchMock.mock.calls[0];
+    expect(path).toBe(refundPath('pay_1'));
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ amountCents: 3_000, reason: 'duplicate' });
   });
-
-  it('maps the API field errors onto the form', async () => {
-    const f = res(422, { success: false, code: 'VALIDATION', message: 'Check the form', fields: { amountCents: 'Too much', reason: 'Bad' } });
-    await expect(createRefund(paid, { amountCents: 1, reason: 'duplicate', note: null }, f)).resolves.toEqual({
-      ok: false,
-      message: 'Check the form',
-      fieldErrors: { amount: 'Too much', reason: 'Bad' },
-    });
-  });
-
-  it('never pretends a refund happened when the call failed', async () => {
-    const r = await createRefund(paid, { amountCents: 1, reason: 'duplicate', note: null }, jest.fn(async () => { throw new Error('x'); }));
-    expect(r.ok).toBe(false);
-  });
-
-  it('falls back to a labelled sample result on 404', async () => {
-    const r = await createRefund(paid, { amountCents: 5000, reason: 'duplicate', note: null }, res(404, {}));
-    expect(r).toMatchObject({ ok: true, sample: true, result: { payment: { status: 'partially_refunded', refundedCents: 5000 } } });
-  });
-});
-
-describe('sampleRefund', () => {
-  it('marks a payment part or fully refunded', () => {
-    expect(sampleRefund(paid, 5000).payment).toMatchObject({ status: 'partially_refunded', refundableCents: paid.refundableCents - 5000 });
-    expect(sampleRefund(paid, paid.refundableCents).payment).toMatchObject({ status: 'refunded', refundableCents: 0, netCents: 0 });
+  it('maps the server’s amount error onto the form', async () => {
+    respond({ success: false, code: 'VALIDATION_ERROR', message: 'Fix it', fields: { amountCents: 'Too much.' } });
+    await expect(createRefund('pay_1', { amountCents: 99_999 })).resolves.toEqual({ ok: false, message: 'Fix it', fieldErrors: { amount: 'Too much.' } });
   });
 });
