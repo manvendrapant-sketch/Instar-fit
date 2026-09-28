@@ -1621,3 +1621,41 @@ that can be a string id or an expanded object) should assume that field is **abs
 delivery unless there's a specific reason to believe otherwise — prefer a plain scalar already on
 the object (like `amount_refunded` here, or reach for a direct `list`/`retrieve` API call instead
 of trusting an expansion that a plain webhook payload was never going to carry.
+
+### A third silent/broken webhook bug: the route itself could crash uncaught (2026-09-28)
+
+Manvendra reported a brand-new subscription's `invoice.paid` delivery showing **"500 ERR — Internal
+Server Error"** in Stripe's dashboard with **no JSON body at all** — not the same shape as either
+bug above (both of those returned a real `200`). That bodyless-500 signature is the exact one this
+app's very first bugs (the original login/signup 500s, Sprint 1) turned out to be: an uncaught
+exception inside a Route Handler, which Next itself turns into its own bare framework error page,
+not anything the app's code wrote.
+
+Root cause, found by reading `app/api/webhooks/stripe/route.ts` directly: only the handler-dispatch
+step (`dispatchWebhookEvent`) was wrapped in try/catch. The bookkeeping around it — the initial
+`webhook_events` insert, the fallback duplicate-lookup, and the final `processedAt` update — were
+not. Any transient DB hiccup in one of those three (a dropped connection, a pooler hiccup under
+concurrent webhook deliveries, which is exactly the situation subscription checkout produces:
+`checkout.session.completed`, `invoice.paid`, and `customer.subscription.updated` can all land
+within moments of each other) crashed the whole Route Handler uncaught.
+
+**Fixed**: the entire DB-touching body of the route (from `getDb()` onward) is now inside one
+try/catch, logging the real error via `console.error` and returning a proper JSON
+`{ error: 'Webhook processing failed' }` with status 500 — so every failure path still asks Stripe
+to retry, instead of leaving an opaque, bodyless error with nothing for Stripe (or a future
+debugging session) to work from. Shipped with two new tests
+(`app/api/webhooks/stripe/route.test.ts`) asserting a thrown error at the initial insert, and at the
+final update, both now return real JSON instead of propagating uncaught.
+
+**Unlike the two bugs above, no manual SQL reset should be needed to recover the specific stuck
+event** (`evt_1UKfCiLbSUpF5Nq31n2mkIEZ`) — this one crashed *before* ever reaching the final
+`processedAt` write (that's what made it crash instead of silently succeeding), so
+`webhook_events.processed_at` should still correctly be null for it, and a plain Resend should now
+just work. Not independently confirmed against the live DB (same standing sandbox limitation as
+everywhere else in this file) — worth double-checking if a Resend still doesn't take effect.
+
+**Three webhook-processing bugs in one day, three different failure shapes** (a race condition
+silently skipping a write, a handler reading data Stripe never sends, and now an unguarded DB call
+crashing the route outright) — worth remembering as a pattern: this route processes concurrent,
+retried, adversarial-by-nature deliveries, and needs the same defensive rigor as any other
+untrusted-input boundary, not just the happy path a first pass tends to cover.
