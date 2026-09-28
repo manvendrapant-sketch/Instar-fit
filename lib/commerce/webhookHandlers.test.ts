@@ -446,34 +446,36 @@ describe('handleCustomerUpdated', () => {
 describe('handleChargeRefunded', () => {
   const PAYMENT_ROW = { id: 'pay-1', totalAmountCents: 20000, status: 'succeeded' };
 
+  function mockRefundsList(refunds: unknown[]) {
+    (getStripe as jest.Mock).mockReturnValue({ refunds: { list: jest.fn().mockResolvedValue({ data: refunds }) } });
+  }
+
   it('skips silently when no payments row matches the charge or payment_intent id', async () => {
     const { db, insert } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(null) });
-    await handleChargeRefunded(db as never, {
-      id: 'ch_1',
-      payment_intent: 'pi_1',
-      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded', metadata: {} }] },
-    } as never);
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 5000 } as never);
     expect(insert).not.toHaveBeenCalled();
   });
 
   it('falls back to looking up by payment_intent id when the charge id does not match', async () => {
     const paymentFindFirst = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(PAYMENT_ROW);
     const { db } = mockDb({ paymentFindFirst });
-    await handleChargeRefunded(db as never, {
-      id: 'ch_1',
-      payment_intent: 'pi_1',
-      refunds: { data: [] },
-    } as never);
+    mockRefundsList([]);
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 0 } as never);
     expect(paymentFindFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it('fetches the real refund objects from Stripe rather than trusting the webhook payload\'s (unpopulated) refunds field', async () => {
+    const { db } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
+    const list = jest.fn().mockResolvedValue({ data: [] });
+    (getStripe as jest.Mock).mockReturnValue({ refunds: { list } });
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 0 } as never);
+    expect(list).toHaveBeenCalledWith({ charge: 'ch_1', limit: 100 });
   });
 
   it('inserts a refunds row per refund on the charge, carrying the metadata reason', async () => {
     const { db, insertValues } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
-    await handleChargeRefunded(db as never, {
-      id: 'ch_1',
-      payment_intent: 'pi_1',
-      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded', metadata: { reason: 'Client request' } }] },
-    } as never);
+    mockRefundsList([{ id: 're_1', amount: 5000, status: 'succeeded', metadata: { reason: 'Client request' } }]);
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 5000 } as never);
     expect(insertValues).toHaveBeenCalledWith({
       paymentId: 'pay-1',
       stripeRefundId: 're_1',
@@ -486,31 +488,22 @@ describe('handleChargeRefunded', () => {
 
   it('marks the payment partially_refunded when less than the total has been refunded', async () => {
     const { db, updateSet } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
-    await handleChargeRefunded(db as never, {
-      id: 'ch_1',
-      payment_intent: 'pi_1',
-      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded', metadata: {} }] },
-    } as never);
+    mockRefundsList([{ id: 're_1', amount: 5000, status: 'succeeded', metadata: {} }]);
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 5000 } as never);
     expect(updateSet).toHaveBeenCalledWith({ status: 'partially_refunded' });
   });
 
   it('marks the payment refunded when the full total has been refunded', async () => {
     const { db, updateSet } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
-    await handleChargeRefunded(db as never, {
-      id: 'ch_1',
-      payment_intent: 'pi_1',
-      refunds: { data: [{ id: 're_1', amount: 20000, status: 'succeeded', metadata: {} }] },
-    } as never);
+    mockRefundsList([{ id: 're_1', amount: 20000, status: 'succeeded', metadata: {} }]);
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 20000 } as never);
     expect(updateSet).toHaveBeenCalledWith({ status: 'refunded' });
   });
 
-  it('does not touch payment status when the only refund has not succeeded', async () => {
+  it('uses charge.amount_refunded (always present) as the total, not the refund list', async () => {
     const { db, update } = mockDb({ paymentFindFirst: jest.fn().mockResolvedValue(PAYMENT_ROW) });
-    await handleChargeRefunded(db as never, {
-      id: 'ch_1',
-      payment_intent: 'pi_1',
-      refunds: { data: [{ id: 're_1', amount: 5000, status: 'pending', metadata: {} }] },
-    } as never);
+    mockRefundsList([{ id: 're_1', amount: 5000, status: 'pending', metadata: {} }]);
+    await handleChargeRefunded(db as never, { id: 'ch_1', payment_intent: 'pi_1', amount_refunded: 0 } as never);
     expect(update).not.toHaveBeenCalled();
   });
 });

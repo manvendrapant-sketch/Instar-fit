@@ -1566,3 +1566,43 @@ dev server, Playwright: confirmed clicking "Manage on Stripe" now calls the real
 attempts a genuine cross-origin navigation to the returned Stripe URL (the navigation itself can't
 complete from this sandbox — no route to `connect.stripe.com` — same limitation as every other
 Stripe-redirect verification in this file; the call and redirect *attempt* are what's confirmed).
+
+### Refunds UI (already merged from `feat/storefront-refunds`) tested live, one more silent-no-op bug found and fixed (2026-09-28)
+
+Manvendra added `charge.refunded` (and the three `charge.dispute.*` events) to the Stripe webhook
+endpoint's subscribed events — a Refund action already existed on the payout dashboard's payment
+rows (`components/RefundDialog.tsx`, `lib/refunds.ts`, merged from Pari's `feat/storefront-refunds`
+branch some time before this session picked it up, already wired to the real
+`GET .../refund-quote`/`POST .../refund` endpoints — nothing to build there, just verified end to
+end in a dev server: quote fetch, breakdown, confirm, "Processing" state).
+
+Manvendra then actually refunded a real payment. The webhook delivered, returned `200
+{"received": true}` (no `"duplicate"` this time — a fresh event, unlike the invoice.paid one
+earlier) — but the payment still showed the Refund button after a reload, meaning nothing actually
+changed in the DB despite the "successful" delivery. Same shape of bug as the invoice.paid one, a
+different field this time: **`handleChargeRefunded` read `charge.refunds?.data` — an expandable
+list Stripe does not populate on a plain webhook payload.** Confirmed directly from the real event
+JSON Manvendra pasted: the charge object had no `refunds` key anywhere. So `refundList` was always
+`[]`, nothing was ever inserted into `refunds`, the payment's status never changed, and the route
+still returned 200 — a second instance of the "no error thrown but nothing actually done" failure
+mode, this time with no dedupe-based excuse (the event itself was brand new).
+
+**Fixed**: `handleChargeRefunded` now calls `stripe.refunds.list({ charge: charge.id, limit: 100 })`
+to get the real Refund objects, and uses `charge.amount_refunded` (a plain integer, always present
+on the event, not expandable) as the authoritative cumulative-refunded total instead of summing the
+unreliable list. Shipped with rewritten tests (`lib/commerce/webhookHandlers.test.ts`) mocking
+`getStripe().refunds.list` instead of the charge object's own `refunds` field.
+
+**The specific refund Manvendra already tried is still stuck** — same recovery as the invoice.paid
+incident: this event's `webhook_events.processed_at` got set on that first (unhelpful) delivery
+(no error was thrown, so the route completed normally and marked it done), so a plain Resend will
+short-circuit as a `"duplicate": true` no-op even now that the code is fixed. Needs the same
+`UPDATE webhook_events SET processed_at = NULL WHERE stripe_event_id = '<id>'` + Resend recipe
+handed off for this refund's own event id before it'll actually write the missing `refunds` row.
+
+**Lesson worth generalizing**: any future webhook handler that reads an **expandable** field off
+`event.data.object` (Stripe's docs mark these explicitly, e.g. a list sub-resource or a reference
+that can be a string id or an expanded object) should assume that field is **absent** on a real
+delivery unless there's a specific reason to believe otherwise — prefer a plain scalar already on
+the object (like `amount_refunded` here, or reach for a direct `list`/`retrieve` API call instead
+of trusting an expansion that a plain webhook payload was never going to carry.

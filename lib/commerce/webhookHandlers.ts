@@ -279,6 +279,12 @@ export async function handleCustomerUpdated(db: Db, customer: Stripe.Customer): 
  * POST /api/coach/payments/[id]/refund route directly — that route only calls Stripe; this is
  * the sole writer of the `refunds` table, same "webhook is the one writer of ledger rows"
  * convention as every other payment in this app.
+ *
+ * Fetches the real Refund objects via `stripe.refunds.list()` rather than reading `charge.refunds`
+ * off the event — that field is expandable and Stripe does not populate it on a plain webhook
+ * payload, confirmed 2026-09-28 against a real delivery whose charge object had no `refunds` key
+ * at all. Reading it used to silently no-op (undefined -> empty list -> nothing inserted, nothing
+ * updated) while still returning 200, so a refund would show "Processing" forever in the UI.
  */
 export async function handleChargeRefunded(db: Db, charge: Stripe.Charge): Promise<void> {
   const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
@@ -292,8 +298,12 @@ export async function handleChargeRefunded(db: Db, charge: Stripe.Charge): Promi
     return;
   }
 
-  const refundList = charge.refunds?.data ?? [];
-  for (const r of refundList) {
+  // `charge.refunds` is an expandable list Stripe does not populate on a plain webhook payload
+  // (confirmed 2026-09-28: a real delivery's charge object had no `refunds` field at all, so this
+  // used to silently see `undefined` and do nothing while still returning 200) — fetch the real
+  // Refund objects directly instead of trusting a field that's never actually there.
+  const refundList = await getStripe().refunds.list({ charge: charge.id, limit: 100 });
+  for (const r of refundList.data) {
     const reason = typeof r.metadata?.reason === 'string' ? r.metadata.reason : null;
     await db
       .insert(refunds)
@@ -308,9 +318,9 @@ export async function handleChargeRefunded(db: Db, charge: Stripe.Charge): Promi
       .onConflictDoNothing({ target: refunds.stripeRefundId });
   }
 
-  const totalRefundedCents = refundList
-    .filter((r) => mapRefundStatus(r.status) === 'succeeded')
-    .reduce((sum, r) => sum + r.amount, 0);
+  // `amount_refunded` is a plain integer field, always present on the event — the cumulative total
+  // refunded on this charge so far, independent of the (unreliable) expandable list above.
+  const totalRefundedCents = charge.amount_refunded;
   if (totalRefundedCents > 0) {
     const newStatus = totalRefundedCents >= payment.totalAmountCents ? 'refunded' : 'partially_refunded';
     if (payment.status !== newStatus) {
