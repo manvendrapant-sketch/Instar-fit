@@ -126,7 +126,37 @@ describe('POST /api/webhooks/stripe', () => {
     const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
 
     expect(res.status).toBe(500);
-    await expect(res.json()).resolves.toEqual({ error: 'Handler failed' });
+    await expect(res.json()).resolves.toEqual({ error: 'Webhook processing failed' });
     expect(updateSet).not.toHaveBeenCalled();
+  });
+
+  it('returns a real 500 response instead of crashing uncaught when the bookkeeping insert itself throws', async () => {
+    // Confirmed 2026-09-28: this step wasn't wrapped in try/catch, so a transient DB error here
+    // crashed the whole Route Handler with Next's bare framework 500 (no JSON body) instead of a
+    // proper error response — exactly the "Internal Server Error" a real delivery showed.
+    const insert = jest.fn().mockImplementation(() => {
+      throw new Error('connection reset');
+    });
+    (getDb as jest.Mock).mockReturnValue({ insert, query: { webhookEvents: { findFirst: jest.fn() } }, update: jest.fn() });
+
+    const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Webhook processing failed' });
+    expect(dispatchWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('returns a real 500 response instead of crashing uncaught when the final processedAt update throws', async () => {
+    const { updateSet } = mockDb({ insertReturning: [{ id: 'row-1', processedAt: null }] });
+    updateSet.mockReturnValue({
+      where: jest.fn().mockImplementation(() => {
+        throw new Error('connection reset');
+      }),
+    });
+
+    const res = await POST(webhookRequest('{}', { 'stripe-signature': 't=1,v1=abc' }));
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: 'Webhook processing failed' });
   });
 });
