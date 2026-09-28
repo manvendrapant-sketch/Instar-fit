@@ -1,3 +1,4 @@
+import Stripe from 'stripe';
 import { POST } from './route';
 import { requireCoachSession } from '@/lib/auth/require-coach';
 import { getDb } from '@/lib/commerce/db';
@@ -93,11 +94,24 @@ describe('POST /api/coach/payments/[id]/refund', () => {
     expect(res.status).toBe(422);
   });
 
-  it('returns 500 when Stripe fails', async () => {
+  it('returns 500 when Stripe fails with an unexpected (non-request) error', async () => {
     (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
     (getDb as jest.Mock).mockReturnValue(mockDb(PAYMENT, []));
     (getStripe as jest.Mock).mockReturnValue({ refunds: { create: jest.fn().mockRejectedValue(new Error('down')) } });
     const res = await POST(req({ amountCents: 5000 }), { params: Promise.resolve({ id: 'pay-1' }) });
     expect(res.status).toBe(500);
+  });
+
+  it('forwards a Stripe invalid-request error (e.g. already refunded) as a 422 with Stripe\'s own message', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    (getDb as jest.Mock).mockReturnValue(mockDb(PAYMENT, []));
+    const stripeErr = new Stripe.errors.StripeInvalidRequestError({
+      message: 'Charge ch_1 has already been refunded.',
+      type: 'invalid_request_error',
+    });
+    (getStripe as jest.Mock).mockReturnValue({ refunds: { create: jest.fn().mockRejectedValue(stripeErr) } });
+    const res = await POST(req({ amountCents: 5000 }), { params: Promise.resolve({ id: 'pay-1' }) });
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toMatchObject({ code: 'REFUND_FAILED', message: 'Charge ch_1 has already been refunded.' });
   });
 });

@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import Stripe from 'stripe';
 import { getDb } from '@/lib/commerce/db';
 import { refunds } from '@/lib/commerce/schema';
 import { mapRefundStatus, validateRefundAmount } from '@/lib/commerce/refunds';
@@ -70,6 +71,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return apiSuccess<RefundPaymentResponse>(data, 'Refund started.');
   } catch (err) {
     console.error(`POST /api/coach/payments/${id}/refund failed:`, err);
+    // A bad-request-shaped Stripe error (already refunded, amount too large, the underlying
+    // charge/payment_intent doesn't exist under the currently configured key, ...) is something
+    // the coach can act on — Stripe's own message is already written for an end user, not an
+    // internal one, so it's safe to forward rather than hiding it behind a generic 500.
+    if (err instanceof Stripe.errors.StripeInvalidRequestError) {
+      return apiError('REFUND_FAILED', err.message, 422);
+    }
     return apiError('INTERNAL_ERROR', 'Something went wrong. Please try again.', 500);
   }
 }
