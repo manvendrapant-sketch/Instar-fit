@@ -1441,3 +1441,66 @@ all ten new routes show up in the build's route list.
   `application_fee_percent` for a subscription, not an exact amount, so the fee reversed on a
   partial refund of a subscription payment is Stripe's own proportional computation of that
   percentage, not a value this app independently verifies against `computeCheckoutBreakdown`.
+
+### Payout dashboard UI merged and reconciled with the Sprint 5 backend (2026-09-28)
+
+Pari's `feat/storefront-payout-dashboard` branch (merged into `main`) turned out to already have a
+full payout dashboard UI (`components/PayoutDashboard.tsx`, `lib/payoutDashboard.ts`,
+`app/styles/payoutDashboard.css`) — built independently against a **proposed, not-yet-built**
+`GET /api/coach/payouts/dashboard` returning one combined response, with a labelled sample-data
+fallback on 404 so the screen could be reviewed before any backend existed.
+
+Asked which was the better shape going forward: one composite endpoint, or the separate
+`/api/coach/{balance,payout-schedule,payouts,payments}` endpoints Sprint 5 had just shipped.
+**Decision: keep the separate endpoints, adapt the frontend to them** — matches every other
+resource in this app (offers, clients, disputes, storefront are all separate `GET`s, never a
+page-specific composite), the Stripe calls behind balance/schedule/payouts are independently slow
+regardless of how many routes trigger them (a composite endpoint hides that latency, it doesn't
+reduce it), and a composite endpoint would have meant maintaining a second, translated-field-name
+contract alongside the real one in `types.ts` for one page's convenience.
+
+**Backend additions to close the real gaps** (fields the UI wanted that nothing computed yet):
+- `CoachBalanceResponse`: `revenueThisMonthCents` (gross) replaced with `earnedThisMonthCents` +
+  `earnedLastMonthCents` — net of Instar's platform fee and refunds, i.e. what the coach actually
+  keeps, not what the client paid. New `lib/commerce/payments.ts`'s `sumNetEarnedCents(db, coachId,
+  start, end)` computes it (payments in range, `!= 'failed'`, minus each one's succeeded refunds);
+  `lib/commerce/payouts.ts`'s `monthRangeUtc(monthsAgo)` replaces the old `startOfCurrentMonthUtc`
+  to give `[start, end)` bounds for both this month and last in one shape.
+- `PayoutScheduleResponse`: gained `weeklyAnchor`/`monthlyAnchor` (only one is ever set, matching
+  which `interval` is active) — straight off `Stripe.Account.Settings.Payouts.Schedule`, no
+  computation involved.
+- `CoachPaymentSummary`: gained `netCents` (`totalAmountCents - platformFeeCents -
+  refundedAmountCents`, floored at 0) — computed server-side from the full `payments` row
+  `toCoachPaymentSummary` already receives, per the standing "never compute money in the browser"
+  rule; no route change needed, `platformFeeCents` was already being selected.
+- **`nextPayout` is deliberately NOT a backend field.** It's derived purely client-side
+  (`lib/payoutDashboard.ts`'s `findNextPayout`) from the payouts list the dashboard already fetches
+  — the soonest `pending`/`in_transit` payout. Computing it server-side would have meant either a
+  second `payouts.list` Stripe call in the balance route (duplicating data the payouts route already
+  fetches) or coupling the two routes together; a plain client-side lookup over data already in
+  hand needed neither.
+
+**Frontend**: `lib/payoutDashboard.ts` rewritten — `fetchPayoutDashboard()` now calls the four real
+endpoints via `Promise.all`, returns the first failure's message on any one failing, and assembles
+`PayoutDashboardData` (the real, non-proposed composite the component consumes) instead of hitting
+a single endpoint with a 404-triggered sample-data fallback; that fallback and its `SAMPLE_DASHBOARD`
+constant are gone entirely — the real routes exist, so a failure now means something real broke, not
+"not built yet." Display helpers (`scheduleLabel`, `delayLabel`, `shortDate`, `arrivalLabel`,
+`clientLabel`, `isEmptyDashboard`, the `PAYOUT_STATUS`/`PAYMENT_STATUS` chip/label maps) carried over
+unchanged — the enum values already matched the real contract exactly.
+`components/PayoutDashboard.tsx` had its few field-name mismatches fixed (`p.amountCents` →
+`p.totalAmountCents`, `p.refundedCents` → `p.refundedAmountCents`, `p.paidAt` → `p.createdAt` for
+payments; `d.balance.nextPayout` → `d.nextPayout`) and the sample-data banner removed.
+
+**Verified**: `tsc --noEmit`, `eslint .`, `npm test` (74 suites, 574 tests), `npm run build` (six
+lazy-client env vars unset) all clean. Real dev server, Playwright, hand-crafted signed coach
+session cookie + mocked `/api/coach/{onboarding-status,profile}`, `/api/offers`, `/api/storefront`
+and all four payout endpoints (same technique as every other UI verification in this file):
+confirmed the full dashboard (next-payout hero, earned/pending/available stats, recent payments with
+correct net/refunded amounts and status chips, payouts list, schedule card), the empty state, and
+the error/retry state, all screenshotted.
+
+**Not done**: no live-Stripe or live-DB verification (same standing gap as every pass in this file).
+The "Manage on Stripe" / "Change on Stripe" buttons still just toast a placeholder — linking them to
+a real Stripe Express dashboard link (if Stripe exposes one for an Express account short of the full
+login link flow) wasn't part of this reconciliation pass.

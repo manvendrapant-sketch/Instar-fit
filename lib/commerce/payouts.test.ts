@@ -1,12 +1,23 @@
-import { DEFAULT_CURRENCY, startOfCurrentMonthUtc, toCoachBalanceResponse, toCoachPayoutSummary, toPayoutScheduleResponse } from './payouts';
+import { DEFAULT_CURRENCY, monthRangeUtc, toCoachBalanceResponse, toCoachPayoutSummary, toPayoutScheduleResponse } from './payouts';
 
 describe('toPayoutScheduleResponse', () => {
-  it('maps a known interval and delay', () => {
-    expect(toPayoutScheduleResponse({ interval: 'weekly', delay_days: 4 } as never)).toEqual({ interval: 'weekly', delayDays: 4 });
+  it('maps a known interval and delay, plus the matching anchor', () => {
+    expect(toPayoutScheduleResponse({ interval: 'weekly', delay_days: 4, weekly_anchor: 'friday' } as never)).toEqual({
+      interval: 'weekly',
+      delayDays: 4,
+      weeklyAnchor: 'friday',
+      monthlyAnchor: null,
+    });
+    expect(toPayoutScheduleResponse({ interval: 'monthly', delay_days: 2, monthly_anchor: 15 } as never)).toEqual({
+      interval: 'monthly',
+      delayDays: 2,
+      weeklyAnchor: null,
+      monthlyAnchor: 15,
+    });
   });
 
-  it('falls back to daily/2 when settings are missing', () => {
-    expect(toPayoutScheduleResponse(undefined)).toEqual({ interval: 'daily', delayDays: 2 });
+  it('falls back to daily/2/no anchors when settings are missing', () => {
+    expect(toPayoutScheduleResponse(undefined)).toEqual({ interval: 'daily', delayDays: 2, weeklyAnchor: null, monthlyAnchor: null });
   });
 
   it('falls back to daily for an unrecognized interval string', () => {
@@ -20,21 +31,23 @@ describe('toCoachBalanceResponse', () => {
       available: [{ amount: 500, currency: 'usd' }, { amount: 100, currency: 'eur' }],
       pending: [{ amount: 300, currency: 'usd' }],
     } as never;
-    expect(toCoachBalanceResponse(balance, 'usd', 12000)).toEqual({
+    expect(toCoachBalanceResponse(balance, 'usd', 12000, 9000)).toEqual({
       currency: 'usd',
       availableCents: 500,
       pendingCents: 300,
-      revenueThisMonthCents: 12000,
+      earnedThisMonthCents: 12000,
+      earnedLastMonthCents: 9000,
     });
   });
 
   it('defaults to 0 when the currency has no entry', () => {
     const balance = { available: [], pending: [] } as never;
-    expect(toCoachBalanceResponse(balance, DEFAULT_CURRENCY, 0)).toEqual({
+    expect(toCoachBalanceResponse(balance, DEFAULT_CURRENCY, 0, 0)).toEqual({
       currency: 'usd',
       availableCents: 0,
       pendingCents: 0,
-      revenueThisMonthCents: 0,
+      earnedThisMonthCents: 0,
+      earnedLastMonthCents: 0,
     });
   });
 });
@@ -58,12 +71,17 @@ describe('toCoachPayoutSummary', () => {
   });
 });
 
-describe('startOfCurrentMonthUtc', () => {
-  it('returns UTC midnight on the 1st of the current month', () => {
-    const d = startOfCurrentMonthUtc();
-    expect(d.getUTCDate()).toBe(1);
-    expect(d.getUTCHours()).toBe(0);
-    expect(d.getUTCMinutes()).toBe(0);
-    expect(d.getUTCSeconds()).toBe(0);
+describe('monthRangeUtc', () => {
+  it('returns [start, end) bounds one calendar month apart for the current month', () => {
+    const { start, end } = monthRangeUtc(0);
+    expect(start.getUTCDate()).toBe(1);
+    expect(start.getUTCHours()).toBe(0);
+    expect(end.getUTCMonth()).toBe((start.getUTCMonth() + 1) % 12);
+  });
+
+  it('shifts back a further month for each monthsAgo', () => {
+    const thisMonth = monthRangeUtc(0);
+    const lastMonth = monthRangeUtc(1);
+    expect(lastMonth.end.getTime()).toBe(thisMonth.start.getTime());
   });
 });

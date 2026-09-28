@@ -29,13 +29,20 @@ export function toPayoutScheduleResponse(schedule: Stripe.Account.Settings.Payou
   return {
     interval: mapPayoutInterval(schedule?.interval),
     delayDays: typeof schedule?.delay_days === 'number' ? schedule.delay_days : 2,
+    weeklyAnchor: schedule?.weekly_anchor ?? null,
+    monthlyAnchor: typeof schedule?.monthly_anchor === 'number' ? schedule.monthly_anchor : null,
   };
 }
 
-export function toCoachBalanceResponse(balance: Stripe.Balance, currency: string, revenueThisMonthCents: number): CoachBalanceResponse {
+export function toCoachBalanceResponse(
+  balance: Stripe.Balance,
+  currency: string,
+  earnedThisMonthCents: number,
+  earnedLastMonthCents: number,
+): CoachBalanceResponse {
   const availableCents = balance.available.find((b) => b.currency === currency)?.amount ?? 0;
   const pendingCents = balance.pending.find((b) => b.currency === currency)?.amount ?? 0;
-  return { currency, availableCents, pendingCents, revenueThisMonthCents };
+  return { currency, availableCents, pendingCents, earnedThisMonthCents, earnedLastMonthCents };
 }
 
 export function toCoachPayoutSummary(payout: Stripe.Payout): CoachPayoutSummary {
@@ -49,10 +56,11 @@ export function toCoachPayoutSummary(payout: Stripe.Payout): CoachPayoutSummary 
   };
 }
 
-/** The start of the current calendar month, UTC midnight — for "revenue this month" queries. */
-export function startOfCurrentMonthUtc(): Date {
-  const d = new Date();
-  d.setUTCDate(1);
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
+/** [start, end) bounds of a calendar month, UTC — `monthsAgo: 0` is the current month, `1` the
+ * one before it. Used to sum "earned this/last month" from `payments`. */
+export function monthRangeUtc(monthsAgo: number): { start: Date; end: Date } {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsAgo, 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsAgo + 1, 1));
+  return { start, end };
 }

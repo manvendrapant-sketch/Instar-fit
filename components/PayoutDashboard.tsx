@@ -7,6 +7,7 @@ import { useAppState } from '@/lib/store';
 import { formatMoney } from '@/lib/offers';
 import { LoadingSection } from '@/components/LoadingSection';
 import { STOREFRONT_PATH } from '@/lib/storefront';
+import type { CoachPaymentSummary, CoachPayoutSummary } from '@/lib/commerce/types';
 import {
   arrivalLabel,
   clientLabel,
@@ -17,10 +18,8 @@ import {
   PAYOUT_STATUS,
   scheduleLabel,
   shortDate,
-  type CoachPaymentSummary,
   type DashboardResult,
-  type PayoutDashboardResponse,
-  type PayoutSummary,
+  type PayoutDashboardData,
 } from '@/lib/payoutDashboard';
 
 /**
@@ -60,12 +59,6 @@ export function PayoutDashboard() {
 
   return (
     <div className="ins-pd">
-      {state.sample && (
-        <p className="ins-pd-sample" role="note">
-          <b>Sample data.</b> These aren’t your real numbers: payout reporting isn’t connected yet.
-        </p>
-      )}
-
       {isEmptyDashboard(d) ? (
         <EmptyDashboard />
       ) : (
@@ -114,8 +107,8 @@ export function PayoutDashboard() {
   );
 }
 
-function NextPayoutCard({ d }: { d: PayoutDashboardResponse }) {
-  const next = d.balance.nextPayout;
+function NextPayoutCard({ d }: { d: PayoutDashboardData }) {
+  const next = d.nextPayout;
   return (
     <section className="ins-panel ins-money ins-pd-hero ins-in d1" aria-label={next ? 'Next payout' : 'Available'}>
       <span className="ins-label">{next ? 'Next payout' : 'Available to pay out'}</span>
@@ -161,13 +154,13 @@ function PaymentsPanel({ payments }: { payments: CoachPaymentSummary[] }) {
                 <div className="ins-pd-who">
                   <b>{clientLabel(p)}</b>
                   <span>
-                    {p.offerName} · {shortDate(p.paidAt)}
+                    {p.offerName} · {shortDate(p.createdAt)}
                   </span>
                 </div>
                 <div className="ins-pd-amt">
-                  <span className="ins-num">{formatMoney(p.amountCents)}</span>
+                  <span className="ins-num">{formatMoney(p.totalAmountCents)}</span>
                   <b className="ins-num">{formatMoney(p.netCents)}</b>
-                  {p.refundedCents > 0 && <span className="ins-pd-muted ins-num">−{formatMoney(p.refundedCents)} refunded</span>}
+                  {p.refundedAmountCents > 0 && <span className="ins-pd-muted ins-num">−{formatMoney(p.refundedAmountCents)} refunded</span>}
                 </div>
                 <span className={`ins-chip ${st.chip}`}>{st.label}</span>
               </li>
@@ -179,7 +172,7 @@ function PaymentsPanel({ payments }: { payments: CoachPaymentSummary[] }) {
   );
 }
 
-function PayoutsPanel({ payouts }: { payouts: PayoutSummary[] }) {
+function PayoutsPanel({ payouts }: { payouts: CoachPayoutSummary[] }) {
   return (
     <section className="ins-panel ins-pd-card ins-in d3" aria-labelledby="pd-payouts">
       <h2 id="pd-payouts">Payouts to your bank</h2>

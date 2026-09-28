@@ -301,21 +301,27 @@ export interface CoachClientsResponse {
  * like once shaped for the frontend, not a DB row.
  */
 
-/** GET /api/coach/balance. `revenueThisMonthCents` is the one number Stripe itself doesn't track
- * for us — it's summed from our own `payments` rows for the current calendar month. */
+/** GET /api/coach/balance. `earnedThisMonthCents`/`earnedLastMonthCents` are the one number Stripe
+ * itself doesn't track for us — summed from our own `payments`/`refunds` rows, net of Instar's
+ * platform fee and any refunds (what actually reaches the coach), for the given calendar month. */
 export interface CoachBalanceResponse {
   currency: string;
   availableCents: number;
   pendingCents: number;
-  revenueThisMonthCents: number;
+  earnedThisMonthCents: number;
+  earnedLastMonthCents: number;
 }
 
 export type PayoutInterval = 'daily' | 'weekly' | 'monthly' | 'manual';
 
-/** GET /api/coach/payout-schedule — part of the coach's Stripe Express account settings. */
+/** GET /api/coach/payout-schedule — part of the coach's Stripe Express account settings.
+ * `weeklyAnchor`/`monthlyAnchor` are only meaningful for the matching `interval` (Stripe leaves the
+ * other one unset); null otherwise. */
 export interface PayoutScheduleResponse {
   interval: PayoutInterval;
   delayDays: number;
+  weeklyAnchor: string | null;
+  monthlyAnchor: number | null;
 }
 
 export type PayoutStatus = 'paid' | 'pending' | 'in_transit' | 'canceled' | 'failed';
@@ -338,7 +344,9 @@ export interface CoachPayoutsResponse {
 
 export type PaymentStatus = 'succeeded' | 'failed' | 'refunded' | 'partially_refunded' | 'disputed';
 
-/** One row in GET /api/coach/payments. */
+/** One row in GET /api/coach/payments. `netCents` is what the coach keeps after Instar's platform
+ * fee and any refunds — server-computed, per the standing "never compute money in the browser"
+ * rule, same as everywhere else in this file. */
 export interface CoachPaymentSummary {
   id: string;
   clientName: string | null;
@@ -346,6 +354,7 @@ export interface CoachPaymentSummary {
   offerName: string;
   currency: string;
   totalAmountCents: number;
+  netCents: number;
   refundedAmountCents: number;
   status: PaymentStatus;
   createdAt: string;

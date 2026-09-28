@@ -10,12 +10,15 @@ jest.mock('@/lib/auth/require-coach');
 const SESSION = { coachId: 'coach-1', email: 'maya@studio.com', handle: 'maya-reyes', displayName: 'Maya Reyes' };
 const ACCOUNT = { id: 'ca-1', coachId: 'coach-1', stripeAccountId: 'acct_1' };
 
-function mockDb(account: unknown, monthPayments: unknown[] = []) {
+function mockDb(account: unknown, paymentRows: unknown[] = [], refundRows: unknown[] = []) {
   return {
     query: {
       connectedAccounts: { findFirst: jest.fn().mockResolvedValue(account) },
-      payments: { findMany: jest.fn().mockResolvedValue(monthPayments) },
+      payments: { findMany: jest.fn().mockResolvedValue(paymentRows) },
     },
+    select: jest.fn().mockReturnValue({
+      from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(refundRows) }),
+    }),
   };
 }
 
@@ -35,10 +38,10 @@ describe('GET /api/coach/balance', () => {
     expect(res.status).toBe(422);
   });
 
-  it('combines a live Stripe balance read with this month\'s revenue from our own payments', async () => {
+  it("combines a live Stripe balance read with what's been earned net of fees this and last month", async () => {
     (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
     (getDb as jest.Mock).mockReturnValue(
-      mockDb(ACCOUNT, [{ totalAmountCents: 10000 }, { totalAmountCents: 5000 }]),
+      mockDb(ACCOUNT, [{ id: 'p1', totalAmountCents: 10000, platformFeeCents: 200 }, { id: 'p2', totalAmountCents: 5000, platformFeeCents: 100 }]),
     );
     const retrieve = jest.fn().mockResolvedValue({
       available: [{ amount: 20000, currency: 'usd' }],
@@ -51,7 +54,13 @@ describe('GET /api/coach/balance', () => {
     expect(retrieve).toHaveBeenCalledWith({}, { stripeContext: 'acct_1' });
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
-      data: { currency: 'usd', availableCents: 20000, pendingCents: 5000, revenueThisMonthCents: 15000 },
+      data: {
+        currency: 'usd',
+        availableCents: 20000,
+        pendingCents: 5000,
+        earnedThisMonthCents: 10000 - 200 + (5000 - 100),
+        earnedLastMonthCents: 10000 - 200 + (5000 - 100),
+      },
     });
   });
 
