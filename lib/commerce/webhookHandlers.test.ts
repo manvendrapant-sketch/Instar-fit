@@ -20,7 +20,7 @@ jest.mock('@/lib/auth/clientToken');
 jest.mock('@/lib/email/send');
 
 function mockDb(opts: {
-  subscriptionFindFirst?: unknown;
+  subscriptionFindFirst?: unknown | jest.Mock;
   priceFindFirst?: unknown;
   clientFindFirst?: unknown;
   offerFindFirst?: unknown;
@@ -28,7 +28,13 @@ function mockDb(opts: {
   paymentFindFirst?: jest.Mock;
   insertReturning?: unknown[];
 }) {
-  const subFindFirst = jest.fn().mockResolvedValue(opts.subscriptionFindFirst ?? null);
+  // A test that needs different answers across repeated calls (e.g. "not found" while a row is
+  // being created, then "found" once it exists) passes its own jest.fn() with a mockResolvedValueOnce
+  // chain instead of a single value.
+  const subFindFirst =
+    typeof opts.subscriptionFindFirst === 'function'
+      ? (opts.subscriptionFindFirst as jest.Mock)
+      : jest.fn().mockResolvedValue(opts.subscriptionFindFirst ?? null);
   const priceFindFirst = jest.fn().mockResolvedValue(opts.priceFindFirst ?? null);
   const clientFindFirst = jest.fn().mockResolvedValue(opts.clientFindFirst ?? null);
   const offerFindFirst = jest.fn().mockResolvedValue(opts.offerFindFirst ?? null);
@@ -199,9 +205,70 @@ describe('handleInvoicePaid', () => {
     expect(insert).not.toHaveBeenCalled();
   });
 
-  it('throws when no subscriptions row exists yet for the Stripe subscription id, so Stripe retries', async () => {
+  it('throws when no subscriptions row exists yet and the invoice carries no metadata to create one', async () => {
     const { db, insert } = mockDb({ subscriptionFindFirst: null });
     await expect(handleInvoicePaid(db as never, invoiceBase as never)).rejects.toThrow(/no subscriptions row/);
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('creates the subscriptions row itself from the invoice\'s own metadata instead of throwing, when none exists yet', async () => {
+    (upsertClient as jest.Mock).mockResolvedValue({ id: 'client-1', coachId: 'coach-1' });
+    const subFindFirst = jest
+      .fn()
+      .mockResolvedValueOnce(null) // handleInvoicePaid's own check
+      .mockResolvedValueOnce(null) // ensureSubscriptionRow's own check
+      .mockResolvedValue({ id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1', priceId: 'price-1', status: 'incomplete' });
+    const { db, insertValues, updateSet } = mockDb({
+      subscriptionFindFirst: subFindFirst,
+      priceFindFirst: { id: 'price-1', unitAmountCents: 10000, currency: 'usd' },
+      clientFindFirst: { id: 'client-1', coachId: 'coach-1' },
+    });
+    const retrieve = jest.fn().mockResolvedValue({ status: 'active', items: { data: [{ current_period_end: 1234567890 }] } });
+    (getStripe as jest.Mock).mockReturnValue({ subscriptions: { retrieve } });
+
+    await handleInvoicePaid(db as never, {
+      id: 'in_1',
+      parent: {
+        subscription_details: {
+          subscription: 'sub_1',
+          metadata: { coachId: 'coach-1', offerId: 'offer-1', clientEmail: 'a@b.com' },
+        },
+      },
+      customer: 'cus_1',
+      customer_email: 'a@b.com',
+      customer_name: 'Ada',
+    } as never);
+
+    expect(upsertClient).toHaveBeenCalledWith(db, {
+      coachId: 'coach-1',
+      email: 'a@b.com',
+      name: 'Ada',
+      stripeCustomerId: 'cus_1',
+    });
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: 'client-1', offerId: 'offer-1', priceId: 'price-1', stripeSubscriptionId: 'sub_1', status: 'active' }),
+    );
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ subscriptionId: 'sub-row-1', status: 'succeeded' }));
+    expect(updateSet).toHaveBeenCalledWith({ status: 'active', updatedAt: expect.any(Date) });
+  });
+
+  it('throws when self-healing but no active price exists for the offer', async () => {
+    (upsertClient as jest.Mock).mockResolvedValue({ id: 'client-1' });
+    const { db, insert } = mockDb({ subscriptionFindFirst: jest.fn().mockResolvedValue(null), priceFindFirst: null });
+
+    await expect(
+      handleInvoicePaid(db as never, {
+        id: 'in_1',
+        parent: {
+          subscription_details: {
+            subscription: 'sub_1',
+            metadata: { coachId: 'coach-1', offerId: 'offer-1', clientEmail: 'a@b.com' },
+          },
+        },
+        customer: 'cus_1',
+        customer_email: 'a@b.com',
+      } as never),
+    ).rejects.toThrow(/could not create subscriptions row/);
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -327,12 +394,46 @@ describe('handleInvoicePaymentFailed / handleInvoicePaymentActionRequired', () =
 });
 
 describe('handleSubscriptionSynced', () => {
-  it('throws when no subscriptions row exists yet, so Stripe retries', async () => {
+  it('throws when no subscriptions row exists yet and the subscription carries no metadata to create one', async () => {
     const { db, update } = mockDb({ subscriptionFindFirst: null });
     await expect(
       handleSubscriptionSynced(db as never, { id: 'sub_1', status: 'active', items: { data: [] } } as never),
     ).rejects.toThrow(/no subscriptions row/);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('creates the subscriptions row itself from the subscription\'s own metadata instead of throwing, when none exists yet', async () => {
+    (upsertClient as jest.Mock).mockResolvedValue({ id: 'client-1' });
+    const subFindFirst = jest
+      .fn()
+      .mockResolvedValueOnce(null) // handleSubscriptionSynced's own check
+      .mockResolvedValueOnce(null) // ensureSubscriptionRow's own check
+      .mockResolvedValue({ id: 'sub-row-1', pauseReason: null });
+    const { db, insertValues, updateSet } = mockDb({
+      subscriptionFindFirst: subFindFirst,
+      priceFindFirst: { id: 'price-1' },
+    });
+    const retrieve = jest.fn().mockResolvedValue({ status: 'active', items: { data: [{ current_period_end: 1700000000 }] } });
+    (getStripe as jest.Mock).mockReturnValue({ subscriptions: { retrieve } });
+
+    await handleSubscriptionSynced(db as never, {
+      id: 'sub_1',
+      status: 'active',
+      customer: 'cus_1',
+      metadata: { coachId: 'coach-1', offerId: 'offer-1', clientEmail: 'a@b.com' },
+      items: { data: [{ current_period_end: 1700000000 }] },
+      pause_collection: null,
+    } as never);
+
+    expect(upsertClient).toHaveBeenCalledWith(db, { coachId: 'coach-1', email: 'a@b.com', name: null, stripeCustomerId: 'cus_1' });
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ stripeSubscriptionId: 'sub_1', offerId: 'offer-1' }));
+    expect(updateSet).toHaveBeenCalledWith({
+      status: 'active',
+      currentPeriodEnd: new Date(1700000000 * 1000),
+      pauseResumesAt: null,
+      pauseReason: null,
+      updatedAt: expect.any(Date),
+    });
   });
 
   it('syncs status and current_period_end', async () => {

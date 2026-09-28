@@ -21,9 +21,65 @@ function metaStr(meta: Stripe.Metadata | null | undefined, key: string): string 
 }
 
 /**
+ * Creates the `subscriptions` row for a Stripe subscription if it doesn't exist yet.
+ * `checkout.session.completed`, `invoice.paid`, and `customer.subscription.*` can each be the
+ * first event Stripe actually delivers for a brand-new subscription — there is no ordering
+ * guarantee between them (confirmed 2026-09-28: a real `invoice.paid` was both created and
+ * delivered a moment *before* `checkout.session.completed` for the same subscription) — so any of
+ * them may need to be the one that creates this row rather than assuming an earlier event already
+ * did. `onConflictDoNothing` makes whichever one actually runs first win; the other's call here is
+ * just a no-op read that returns the row the first one created.
+ */
+async function ensureSubscriptionRow(
+  db: Db,
+  input: { stripeSubscriptionId: string; offerId: string; clientId: string },
+): Promise<typeof subscriptions.$inferSelect | undefined> {
+  const existing = await db.query.subscriptions.findFirst({
+    where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, input.stripeSubscriptionId),
+  });
+  if (existing) return existing;
+
+  const priceRow = await db.query.prices.findFirst({
+    where: (p, { eq: eqCol, and: andCol }) => andCol(eqCol(p.offerId, input.offerId), eqCol(p.active, true)),
+  });
+  if (!priceRow) {
+    console.error(`ensureSubscriptionRow ${input.stripeSubscriptionId}: no active price for offer ${input.offerId}`);
+    return undefined;
+  }
+
+  let status: SubscriptionStatus = 'incomplete';
+  let currentPeriodEnd: Date | null = null;
+  try {
+    const sub = await getStripe().subscriptions.retrieve(input.stripeSubscriptionId);
+    status = mapSubscriptionStatus(sub.status);
+    const periodEnd = sub.items.data[0]?.current_period_end;
+    currentPeriodEnd = periodEnd ? new Date(periodEnd * 1000) : null;
+  } catch (err) {
+    console.error(`ensureSubscriptionRow ${input.stripeSubscriptionId}: failed to retrieve subscription:`, err);
+  }
+
+  await db
+    .insert(subscriptions)
+    .values({
+      clientId: input.clientId,
+      offerId: input.offerId,
+      priceId: priceRow.id,
+      stripeSubscriptionId: input.stripeSubscriptionId,
+      status,
+      currentPeriodEnd,
+    })
+    .onConflictDoNothing({ target: subscriptions.stripeSubscriptionId });
+
+  return db.query.subscriptions.findFirst({
+    where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, input.stripeSubscriptionId),
+  });
+}
+
+/**
  * Fires for both one-time and subscription checkouts. Always upserts the client; for a
- * subscription it also records the `subscriptions` row, so `invoice.paid` (which only carries a
- * bare Stripe subscription id) can join back to our own offerId/priceId/coachId later.
+ * subscription it also ensures the `subscriptions` row exists (see `ensureSubscriptionRow`), so
+ * `invoice.paid`/`customer.subscription.*` (which only carry a bare Stripe subscription id) can
+ * join back to our own offerId/priceId/coachId later.
  */
 export async function handleCheckoutSessionCompleted(db: Db, session: Stripe.Checkout.Session): Promise<void> {
   const coachId = metaStr(session.metadata, 'coachId');
@@ -46,34 +102,7 @@ export async function handleCheckoutSessionCompleted(db: Db, session: Stripe.Che
 
   const stripeSubscriptionId =
     typeof session.subscription === 'string' ? session.subscription : session.subscription.id;
-  const existing = await db.query.subscriptions.findFirst({
-    where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, stripeSubscriptionId),
-  });
-  if (existing) return;
-
-  const priceRow = await db.query.prices.findFirst({
-    where: (p, { eq: eqCol, and: andCol }) => andCol(eqCol(p.offerId, offerId), eqCol(p.active, true)),
-  });
-  if (!priceRow) {
-    console.error(`checkout.session.completed ${session.id}: no active price for offer ${offerId}`);
-    return;
-  }
-
-  let status: SubscriptionStatus = 'incomplete';
-  let currentPeriodEnd: Date | null = null;
-  try {
-    const sub = await getStripe().subscriptions.retrieve(stripeSubscriptionId);
-    status = mapSubscriptionStatus(sub.status);
-    const periodEnd = sub.items.data[0]?.current_period_end;
-    currentPeriodEnd = periodEnd ? new Date(periodEnd * 1000) : null;
-  } catch (err) {
-    console.error(`checkout.session.completed ${session.id}: failed to retrieve subscription ${stripeSubscriptionId}:`, err);
-  }
-
-  await db
-    .insert(subscriptions)
-    .values({ clientId: client.id, offerId, priceId: priceRow.id, stripeSubscriptionId, status, currentPeriodEnd })
-    .onConflictDoNothing({ target: subscriptions.stripeSubscriptionId });
+  await ensureSubscriptionRow(db, { stripeSubscriptionId, offerId, clientId: client.id });
 }
 
 /**
@@ -124,23 +153,36 @@ export async function handlePaymentIntentSucceeded(db: Db, pi: Stripe.PaymentInt
  * with every other MoneyBreakdown in the app rather than a second source of truth for fees.
  */
 export async function handleInvoicePaid(db: Db, invoice: Stripe.Invoice): Promise<void> {
-  const subscriptionRef = invoice.parent?.subscription_details?.subscription;
+  const subscriptionDetails = invoice.parent?.subscription_details;
+  const subscriptionRef = subscriptionDetails?.subscription;
   const stripeSubscriptionId = typeof subscriptionRef === 'string' ? subscriptionRef : subscriptionRef?.id;
   if (!stripeSubscriptionId) return; // not a subscription invoice — out of Sprint 3's scope.
 
-  const subscription = await db.query.subscriptions.findFirst({
+  let subscription = await db.query.subscriptions.findFirst({
     where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, stripeSubscriptionId),
   });
   if (!subscription) {
-    // Almost always a race, not a permanent gap: `checkout.session.completed` inserts this same
-    // subscriptions row, and Stripe can deliver that event and this invoice's `invoice.paid` close
-    // enough together that this one arrives first. Throwing (rather than the silent skip this used
-    // to be) makes the webhook route return 500, so Stripe retries with backoff — by the next
-    // attempt the other event has almost always landed. A silent skip here previously meant this
-    // invoice's payment was gone for good the moment it lost the race, with no trace but a server
-    // log line nobody was reading (confirmed 2026-09-28: a subscription's first invoice payment
-    // never appeared in `payments` despite the subscription itself becoming active).
-    throw new Error(`invoice.paid ${invoice.id}: no subscriptions row for ${stripeSubscriptionId} yet`);
+    // No ordering guarantee between `checkout.session.completed` and this event — confirmed
+    // 2026-09-28 that Stripe can create *and deliver* `invoice.paid` before `checkout.session.
+    // completed` for the very same subscription, which used to mean throwing here and waiting on a
+    // Stripe retry (up to ~an hour on backoff) or a coach noticing a failed delivery and clicking
+    // Resend by hand — not acceptable for a real payment that should just work. Checkout's own
+    // `subscription_data.metadata` is copied onto both the Subscription and every Invoice it
+    // generates, so this event alone carries everything `checkout.session.completed` would have
+    // used — create the row here instead of waiting for that other event to win the race.
+    const meta = subscriptionDetails?.metadata;
+    const coachId = metaStr(meta, 'coachId');
+    const offerId = metaStr(meta, 'offerId');
+    const email = invoice.customer_email ?? metaStr(meta, 'clientEmail');
+    if (!coachId || !offerId || !email) {
+      throw new Error(`invoice.paid ${invoice.id}: no subscriptions row for ${stripeSubscriptionId} and no metadata to create one`);
+    }
+    const stripeCustomerId = typeof invoice.customer === 'string' ? invoice.customer : (invoice.customer?.id ?? null);
+    const client = await upsertClient(db, { coachId, email, name: invoice.customer_name ?? null, stripeCustomerId });
+    subscription = await ensureSubscriptionRow(db, { stripeSubscriptionId, offerId, clientId: client.id });
+    if (!subscription) {
+      throw new Error(`invoice.paid ${invoice.id}: could not create subscriptions row for ${stripeSubscriptionId} (no active price for offer ${offerId}?)`);
+    }
   }
 
   const [client, priceRow] = await Promise.all([
@@ -386,13 +428,26 @@ export async function handleDisputeSynced(db: Db, dispute: Stripe.Dispute): Prom
  * `resumes_at` and fires `.resumed`, which lands here like any other sync.
  */
 export async function handleSubscriptionSynced(db: Db, sub: Stripe.Subscription): Promise<void> {
-  const existing = await db.query.subscriptions.findFirst({
+  let existing = await db.query.subscriptions.findFirst({
     where: (s, { eq: eqCol }) => eqCol(s.stripeSubscriptionId, sub.id),
   });
   if (!existing) {
-    // Same race as invoice.paid above: throw so Stripe retries once checkout.session.completed's
-    // own insert of this subscriptions row has landed, instead of silently dropping this sync.
-    throw new Error(`customer.subscription synced ${sub.id}: no subscriptions row yet`);
+    // Same race as invoice.paid above — this event can also be delivered before checkout.session.
+    // completed's own insert lands. `sub.metadata` carries the same coachId/offerId/clientEmail
+    // Checkout's subscription_data.metadata sets, so create the row from this event directly
+    // rather than throwing and waiting on a retry that depends on event ordering we don't control.
+    const coachId = metaStr(sub.metadata, 'coachId');
+    const offerId = metaStr(sub.metadata, 'offerId');
+    const email = metaStr(sub.metadata, 'clientEmail');
+    if (!coachId || !offerId || !email) {
+      throw new Error(`customer.subscription synced ${sub.id}: no subscriptions row and no metadata to create one`);
+    }
+    const stripeCustomerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
+    const client = await upsertClient(db, { coachId, email, name: null, stripeCustomerId });
+    existing = await ensureSubscriptionRow(db, { stripeSubscriptionId: sub.id, offerId, clientId: client.id });
+    if (!existing) {
+      throw new Error(`customer.subscription synced ${sub.id}: could not create subscriptions row (no active price for offer ${offerId}?)`);
+    }
   }
 
   const fields = subscriptionSyncFields(sub, existing.pauseReason);
