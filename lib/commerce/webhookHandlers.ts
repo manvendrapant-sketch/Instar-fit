@@ -195,18 +195,26 @@ export async function handleInvoicePaid(db: Db, invoice: Stripe.Invoice): Promis
   }
 
   const breakdown = computeCheckoutBreakdown(priceRow.unitAmountCents, priceRow.currency);
-  // Best-effort only: `payments` is an includable field, not guaranteed present on every webhook
-  // delivery. A null id here just means the payments row records the amounts without a Stripe
-  // PaymentIntent/Charge cross-reference, not that anything failed.
-  const firstPayment = invoice.payments?.data?.[0]?.payment;
-  const paymentIntentId =
-    firstPayment?.type === 'payment_intent'
-      ? (typeof firstPayment.payment_intent === 'string' ? firstPayment.payment_intent : (firstPayment.payment_intent?.id ?? null))
-      : null;
-  const chargeId =
-    firstPayment?.type === 'charge'
-      ? (typeof firstPayment.charge === 'string' ? firstPayment.charge : (firstPayment.charge?.id ?? null))
-      : null;
+  // `invoice.payments` is an expandable field Stripe does not populate on a plain webhook payload
+  // — confirmed 2026-09-28: a real invoice.paid delivery's invoice object had no `payments` key at
+  // all, the same class of bug as `charge.refunds` on `charge.refunded` (see handleChargeRefunded
+  // above). Reading it as `undefined` used to silently leave every subscription payment's
+  // stripePaymentIntentId/stripeChargeId null — harmless for display, but it made the payment
+  // permanently un-refundable (POST /api/coach/payments/[id]/refund 422s NOT_REFUNDABLE without
+  // either id). Fetch the real InvoicePayment via a direct, non-expandable list call instead.
+  let paymentIntentId: string | null = null;
+  let chargeId: string | null = null;
+  try {
+    const invoicePayments = await getStripe().invoicePayments.list({ invoice: invoice.id, limit: 1 });
+    const firstPayment = invoicePayments.data[0]?.payment;
+    if (firstPayment?.type === 'payment_intent') {
+      paymentIntentId = typeof firstPayment.payment_intent === 'string' ? firstPayment.payment_intent : (firstPayment.payment_intent?.id ?? null);
+    } else if (firstPayment?.type === 'charge') {
+      chargeId = typeof firstPayment.charge === 'string' ? firstPayment.charge : (firstPayment.charge?.id ?? null);
+    }
+  } catch (err) {
+    console.error(`invoice.paid ${invoice.id}: failed to look up invoice payments:`, err);
+  }
 
   await db
     .insert(payments)

@@ -278,12 +278,12 @@ describe('handleInvoicePaid', () => {
       priceFindFirst: { id: 'price-1', unitAmountCents: 10000, currency: 'usd' },
       clientFindFirst: { id: 'client-1', coachId: 'coach-1' },
     });
+    const list = jest.fn().mockResolvedValue({ data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_1' } }] });
+    (getStripe as jest.Mock).mockReturnValue({ invoicePayments: { list } });
 
-    await handleInvoicePaid(db as never, {
-      ...invoiceBase,
-      payments: { data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_1' } }] },
-    } as never);
+    await handleInvoicePaid(db as never, invoiceBase as never);
 
+    expect(list).toHaveBeenCalledWith({ invoice: 'in_1', limit: 1 });
     expect(insertValues).toHaveBeenCalledWith({
       coachId: 'coach-1',
       clientId: 'client-1',
@@ -301,14 +301,46 @@ describe('handleInvoicePaid', () => {
     expect(updateSet).toHaveBeenCalledWith({ status: 'active', updatedAt: expect.any(Date) });
   });
 
+  it('extracts a charge id instead when the invoice payment type is charge, not payment_intent', async () => {
+    const { db, insertValues } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1', priceId: 'price-1', status: 'active' },
+      priceFindFirst: { id: 'price-1', unitAmountCents: 10000, currency: 'usd' },
+      clientFindFirst: { id: 'client-1', coachId: 'coach-1' },
+    });
+    (getStripe as jest.Mock).mockReturnValue({
+      invoicePayments: { list: jest.fn().mockResolvedValue({ data: [{ payment: { type: 'charge', charge: 'ch_1' } }] }) },
+    });
+
+    await handleInvoicePaid(db as never, invoiceBase as never);
+
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ stripePaymentIntentId: null, stripeChargeId: 'ch_1' }));
+  });
+
+  it('records the payment with null ids rather than failing, when the invoice payments lookup itself fails', async () => {
+    // `invoice.payments` is an expandable field Stripe does not populate on a plain webhook
+    // payload (confirmed 2026-09-28) -- this covers the direct API call's own failure mode, e.g. a
+    // transient Stripe API hiccup, so a payment still gets recorded rather than losing it entirely.
+    const { db, insertValues } = mockDb({
+      subscriptionFindFirst: { id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1', priceId: 'price-1', status: 'active' },
+      priceFindFirst: { id: 'price-1', unitAmountCents: 10000, currency: 'usd' },
+      clientFindFirst: { id: 'client-1', coachId: 'coach-1' },
+    });
+    (getStripe as jest.Mock).mockReturnValue({ invoicePayments: { list: jest.fn().mockRejectedValue(new Error('down')) } });
+
+    await handleInvoicePaid(db as never, invoiceBase as never);
+
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ stripePaymentIntentId: null, stripeChargeId: null }));
+  });
+
   it('does not touch subscription status when it is already active', async () => {
     const { db, update } = mockDb({
       subscriptionFindFirst: { id: 'sub-row-1', clientId: 'client-1', offerId: 'offer-1', priceId: 'price-1', status: 'active' },
       priceFindFirst: { id: 'price-1', unitAmountCents: 10000, currency: 'usd' },
       clientFindFirst: { id: 'client-1', coachId: 'coach-1' },
     });
+    (getStripe as jest.Mock).mockReturnValue({ invoicePayments: { list: jest.fn().mockResolvedValue({ data: [] }) } });
 
-    await handleInvoicePaid(db as never, { ...invoiceBase, payments: undefined } as never);
+    await handleInvoicePaid(db as never, invoiceBase as never);
 
     expect(update).not.toHaveBeenCalled();
   });

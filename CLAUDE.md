@@ -1757,3 +1757,44 @@ itself (`lib/sellChecklist.ts`, `components/SellChecklist.tsx`) still reads/writ
 `localStorage` — Pari said she'd switch it to read the date from the profile once this backend
 exists, keeping the browser setting as a fallback if the call fails. That frontend change is hers
 to make, not built here.
+
+### A fourth instance of the same expandable-field bug — subscription payments were never refundable (2026-09-28)
+
+Manvendra reported `POST /api/coach/payments/[id]/refund` 422ing on a "Monthly Coaching" (a
+subscription) payment. Root cause, found by reading the code rather than guessing: `handleInvoicePaid`
+read `invoice.payments?.data?.[0]?.payment` to get the PaymentIntent/Charge id for a subscription's
+billing-cycle payment — **`invoice.payments` is an expandable field Stripe does not populate on a
+plain webhook payload**, confirmed against the real event JSON pasted earlier this same day
+(`evt_1UKfoELbSUpF5Nq31n2mkIEZ`'s invoice object had no `payments` key at all). This was flagged as
+an accepted, "rare" gap back in Sprint 3 ("`payments.stripePaymentIntentId`'s uniqueness can't dedupe
+an `invoice.paid` retry that lands with a null id... accepted as rare") — it was never rare, it's the
+default: **every subscription payment this app has ever recorded almost certainly has both ids
+null**, which the refund route's own `NOT_REFUNDABLE` 422 ("This payment has no Stripe charge to
+refund") makes fatal, not just cosmetic. This is the exact same failure mode as `charge.refunds` on
+`charge.refunded` (see "Refunds UI... one more silent-no-op bug found and fixed" above) — the third
+time this specific expandable-field assumption has bitten this app, despite the "lesson worth
+generalizing" already written down after the second time.
+
+**Fixed the same way as that earlier fix**: `handleInvoicePaid` now calls
+`stripe.invoicePayments.list({ invoice: invoice.id, limit: 1 })` — a direct, non-expandable API call
+— instead of trusting the webhook payload's own (absent) `payments` field. Wrapped in try/catch so a
+transient Stripe API hiccup here still lets the payment get recorded (with null ids, same as before)
+rather than losing the whole webhook delivery over a secondary lookup.
+
+**Already-recorded subscription payments with null ids are not fixed by this change** — this only
+fixes new ones going forward. A payment already sits in `payments` with
+`stripePaymentIntentId`/`stripeChargeId` both null will still 422 on refund until backfilled. If
+refunding an *existing* subscription payment is needed before a real fix is written for that
+(a one-off script calling `stripe.invoicePayments.list` per affected row and writing back the id),
+the practical workaround is the same class as the earlier orphaned-Stripe-object issues in this
+file: there isn't a clean one for data already written, only for what gets written from here on.
+
+Shipped with tests (`lib/commerce/webhookHandlers.test.ts`): the payment-intent case, a new
+charge-type case (previously untested — the old code path could return either shape but only
+payment_intent had test coverage), and the Stripe-call-fails-gracefully case. Verified: `tsc
+--noEmit`, `eslint .`, `npm test` (79 suites, 647 tests), `npm run build` all clean.
+
+**Worth doing at some point, not done here**: a small backfill script/query to find every
+`payments` row with `subscriptionId` set and both Stripe ids null, and reconcile each one via
+`stripe.invoicePayments.list`. Flagged, not built — this pass was scoped to stopping the bleeding
+for new payments, per what was actually reported.
