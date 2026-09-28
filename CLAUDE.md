@@ -1708,3 +1708,52 @@ both handlers and the still-throws-when-genuinely-unrecoverable cases. Not indep
 against the live DB from this sandbox (same standing limitation as every pass in this file) — worth
 a fresh subscription checkout end to end to confirm the payment now shows up on the very first
 webhook delivery, no manual Resend needed.
+
+## Checklist persistence — coaches.setup_checklist_closed_at (2026-09-28)
+
+Pari flagged two real limits in the "Get ready to sell" checklist (Sprint 6) she'd just shipped,
+both stemming from the same root cause: the checklist's dismissal only ever lived in one browser's
+`localStorage`.
+1. **"Hide" doesn't follow the coach across devices** — click Hide on a laptop, the checklist is
+   still there on the phone, since that browser was never told.
+2. **It doesn't retire itself** — once all six steps are done, the checklist becomes a small "You're
+   open for business" card that stays on Today until the coach clicks Done; nothing decides on its
+   own that setup is over, and if the coach never clicks Done and later unpublishes, the card reverts
+   to a checklist with steps marked incomplete.
+
+Both need the same fix: a server-side, once-per-coach "setup is finished" flag instead of a
+browser-local one. Pari asked for exactly three things, all now shipped:
+
+- **Schema**: `coaches.setup_checklist_closed_at` (nullable timestamp, migration
+  `0007_known_captain_marvel.sql`) — null until closed, set once, never cleared. Mirrors
+  `coaches.storefrontCompletedAt`'s own "first write wins" pattern exactly (same table, same
+  convention already established there). **Same unconfirmed/unapplied situation as every migration
+  since 0000** — this sandbox still can't reach Postgres (see "This Claude Code sandbox cannot reach
+  Postgres" above, unchanged). Handed off the same self-contained/idempotent way as always.
+- **`GET /api/coach/profile`** now returns `setupChecklistClosedAt` (ISO string or null) alongside
+  the rest of `CoachProfile` — one field added to the one shared type in `lib/commerce/types.ts`,
+  per the standing "flag any change to the contract" rule, not edited quietly.
+- **`POST /api/coach/setup-checklist/close`** — the new endpoint that sets it. Idempotent: a second
+  call is a no-op that just echoes the original close time back, never overwrites it. The frontend
+  is expected to call this on the coach's Hide click, or on its own once all six steps are done.
+
+**Frontend fallout from adding a required field to `CoachProfile`** (the one shared contract type,
+so every consumer of it needed a look): `lib/storefront.ts`'s `withStorefrontDefaults` gained a
+`setupChecklistClosedAt: null` default (same pattern as its other server-derived defaults);
+`components/StorefrontCreator.tsx`'s field-setter helper now excludes `setupChecklistClosedAt` from
+the editable-field type union alongside the existing `completed` exclusion, both being fields the
+server derives, never the form. Two test fixtures (`lib/publicStorefront.test.ts`,
+`lib/storefront.test.ts`) needed the new field added to their hand-built `CoachProfile` literals to
+keep compiling.
+
+Shipped with tests (standing rule): `app/api/coach/profile/route.test.ts` gained cases for the new
+field's null/set states; `app/api/coach/setup-checklist/close/route.test.ts` is new, covering
+auth, first-call-sets-it, second-call-is-idempotent, and the DB-throws path. Verified: `tsc
+--noEmit`, `eslint .`, `npm test` (79 suites, 645 tests), `npm run build` (six lazy-client env vars
+unset) all clean, and the new route shows up in the build's route list.
+
+**Not done — this pass is the backend Pari asked for, not the frontend switch-over**: the checklist
+itself (`lib/sellChecklist.ts`, `components/SellChecklist.tsx`) still reads/writes only
+`localStorage` — Pari said she'd switch it to read the date from the profile once this backend
+exists, keeping the browser setting as a fallback if the call fails. That frontend change is hers
+to make, not built here.

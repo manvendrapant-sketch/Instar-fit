@@ -81,6 +81,11 @@ export const coaches = pgTable(
     // once the storefront-publish endpoint's readiness gate (Connect payouts ready + >=1 active
     // offer) passes.
     published: boolean('published').default(false).notNull(),
+    // Null until POST /api/coach/setup-checklist/close (the "Get ready to sell" checklist's Hide
+    // button, or the app itself once all six steps are done) — set once, never cleared. Lets the
+    // checklist's dismissal survive across devices/browsers instead of living only in
+    // localStorage; see CLAUDE.md's "checklist persistence" entry.
+    setupChecklistClosedAt: timestamp('setup_checklist_closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

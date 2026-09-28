@@ -19,6 +19,7 @@ const COACH = {
   coachingMode: 'online' as const,
   timeZone: 'America/New_York',
   storefrontCompletedAt: null as Date | null,
+  setupChecklistClosedAt: null as Date | null,
 };
 
 const VALID_BODY = {
@@ -70,6 +71,25 @@ describe('GET /api/coach/profile', () => {
 
     const res = await GET();
     await expect(res.json()).resolves.toMatchObject({ data: { completed: true } });
+  });
+
+  it('reports setupChecklistClosedAt as null until the checklist has been closed', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    (getDb as jest.Mock).mockReturnValue({ query: { coaches: { findFirst: jest.fn().mockResolvedValue(COACH) } } });
+
+    const res = await GET();
+    await expect(res.json()).resolves.toMatchObject({ data: { setupChecklistClosedAt: null } });
+  });
+
+  it('reports setupChecklistClosedAt as an ISO string once the checklist has been closed', async () => {
+    (requireCoachSession as jest.Mock).mockResolvedValue(SESSION);
+    const closedAt = new Date('2026-09-28T12:00:00.000Z');
+    (getDb as jest.Mock).mockReturnValue({
+      query: { coaches: { findFirst: jest.fn().mockResolvedValue({ ...COACH, setupChecklistClosedAt: closedAt }) } },
+    });
+
+    const res = await GET();
+    await expect(res.json()).resolves.toMatchObject({ data: { setupChecklistClosedAt: closedAt.toISOString() } });
   });
 });
 

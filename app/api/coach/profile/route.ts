@@ -19,6 +19,7 @@ function toProfile(coach: {
   coachingMode: CoachProfile['coachingMode'];
   timeZone: string;
   storefrontCompletedAt: Date | null;
+  setupChecklistClosedAt: Date | null;
 }): CoachProfile {
   return {
     handle: coach.handle,
@@ -30,6 +31,7 @@ function toProfile(coach: {
     coachingMode: coach.coachingMode,
     timeZone: coach.timeZone,
     completed: coach.storefrontCompletedAt !== null,
+    setupChecklistClosedAt: coach.setupChecklistClosedAt ? coach.setupChecklistClosedAt.toISOString() : null,
   };
 }
 

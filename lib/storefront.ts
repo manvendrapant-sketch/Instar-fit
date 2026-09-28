@@ -92,6 +92,7 @@ export function withStorefrontDefaults(d: Partial<StorefrontDraft> & Pick<Storef
     coachingMode: 'online',
     timeZone: detectTimeZone(),
     completed: false,
+    setupChecklistClosedAt: null,
     ...d,
     specialties: d.specialties ?? [],
   };

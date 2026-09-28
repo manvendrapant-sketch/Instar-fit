@@ -112,8 +112,9 @@ export function StorefrontCreator({ defaults }: { defaults: Pick<StorefrontDraft
     );
   }
 
-  // Only the fields the form itself edits — never `completed`, which the server derives.
-  const set = <K extends Exclude<keyof StorefrontDraft, 'completed'>>(key: K, value: StorefrontDraft[K]) => {
+  // Only the fields the form itself edits — never `completed`/`setupChecklistClosedAt`, both of
+  // which the server derives.
+  const set = <K extends Exclude<keyof StorefrontDraft, 'completed' | 'setupChecklistClosedAt'>>(key: K, value: StorefrontDraft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
     // Editing a field clears its error; the next submit re-checks everything.
     const field: StorefrontField = key === 'avatarUrl' ? 'avatar' : key === 'coachingMode' ? 'location' : key;

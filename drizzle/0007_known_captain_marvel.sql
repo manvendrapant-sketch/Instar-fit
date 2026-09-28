@@ -1,0 +1,1 @@
+ALTER TABLE "coaches" ADD COLUMN "setup_checklist_closed_at" timestamp with time zone;

@@ -26,6 +26,7 @@ const valid: StorefrontDraft = {
   coachingMode: 'online',
   timeZone: 'America/Chicago',
   completed: true,
+  setupChecklistClosedAt: null,
 };
 
 describe('normalizeHandle', () => {

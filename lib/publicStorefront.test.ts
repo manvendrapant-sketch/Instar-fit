@@ -12,6 +12,7 @@ const profile: CoachProfile = {
   coachingMode: 'online',
   timeZone: 'America/Chicago',
   completed: true,
+  setupChecklistClosedAt: null,
 };
 const offer = (id: string, active: boolean): CoachOfferSummary => ({
   id,

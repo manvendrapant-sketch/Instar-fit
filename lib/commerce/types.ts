@@ -66,6 +66,14 @@ export interface CoachProfile {
   /** IANA zone, e.g. "America/Chicago". */
   timeZone: string;
   completed: boolean;
+  /** ISO timestamp, or null if the "Get ready to sell" checklist hasn't been closed yet. Set once,
+   *  never cleared — see POST /api/coach/setup-checklist/close. */
+  setupChecklistClosedAt: string | null;
+}
+
+/** POST /api/coach/setup-checklist/close response. */
+export interface SetupChecklistCloseResponse {
+  setupChecklistClosedAt: string;
 }
 
 /** PATCH /api/coach/profile request body — always the full profile, not a partial patch. */
