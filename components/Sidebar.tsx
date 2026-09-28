@@ -11,6 +11,7 @@ import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
 import { PAYOUTS_PATH } from '@/lib/payouts';
 import { CLIENTS_PATH } from '@/lib/coachClients';
+import { DISPUTES_PATH } from '@/lib/disputes';
 
 const SPACE_COUNTS: Record<string, string> = {
   roster: '36',
@@ -107,6 +108,21 @@ export function Sidebar({ coach }: { coach: { displayName: string; email: string
                       onClick={close}
                     >
                       <Icon name="roster" />
+                      {tile.title}
+                    </Link>
+                  );
+                }
+                if (tile.id === 'disputes') {
+                  const on = pathname.startsWith(DISPUTES_PATH);
+                  return (
+                    <Link
+                      key={tile.id}
+                      href={DISPUTES_PATH}
+                      className={`ins-nav ${on ? 'on' : ''}`}
+                      aria-current={on ? 'page' : undefined}
+                      onClick={close}
+                    >
+                      <Icon name="alert" />
                       {tile.title}
                     </Link>
                   );

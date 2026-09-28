@@ -11,6 +11,7 @@ import { createDashboardLink } from '@/lib/payouts';
 import type { CoachPaymentSummary, CoachPayoutSummary, RefundPaymentResponse } from '@/lib/commerce/types';
 import { RefundDialog } from '@/components/RefundDialog';
 import { isRefundable } from '@/lib/refunds';
+import { DISPUTES_PATH } from '@/lib/disputes';
 import {
   arrivalLabel,
   clientLabel,
@@ -209,7 +210,9 @@ function PaymentsPanel({
                       Refund
                     </button>
                   ) : p.status === 'disputed' ? (
-                    <span className="ins-pd-muted">In dispute</span>
+                    <Link href={DISPUTES_PATH} className="ins-pd-muted ins-pd-link">
+                      In dispute
+                    </Link>
                   ) : null}
                 </span>
               </li>

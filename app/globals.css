@@ -8,6 +8,7 @@
 @import './styles/payoutDashboard.css';
 @import './styles/public.css';
 @import './styles/clients.css';
+@import './styles/disputes.css';
 
 * {
   box-sizing: border-box;
