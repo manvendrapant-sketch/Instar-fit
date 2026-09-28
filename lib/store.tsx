@@ -38,6 +38,12 @@ interface AppState {
   /** The "create your storefront" popup on Today was closed with "Later". Still a local-only preference. */
   storefrontPromptDismissed: boolean;
   dismissStorefrontPrompt: () => void;
+  /** The coach copied their storefront link (Today's checklist or the storefront page). Local-only. */
+  linkShared: boolean;
+  markLinkShared: () => void;
+  /** Today's "Get ready to sell" checklist was hidden. Local-only. */
+  checklistHidden: boolean;
+  hideChecklist: () => void;
   /** The coach's offers, from GET /api/offers, in storefront order. */
   offers: CoachOfferSummary[];
   /** Re-fetches the list — call after a successful create/update/delete/reorder. */
@@ -85,6 +91,8 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
   const [storefront, setStorefront] = useState<CoachProfile | null>(null);
   const [storefrontStatus, setStorefrontStatus] = useState<StorefrontStatus | null>(null);
   const [storefrontPromptDismissed, setStorefrontPromptDismissed] = useState(false);
+  const [linkShared, setLinkShared] = useState(false);
+  const [checklistHidden, setChecklistHidden] = useState(false);
   const [offers, setOffers] = useState<CoachOfferSummary[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [payouts, setPayouts] = useState<OnboardingStatus>(NOT_STARTED);
@@ -129,6 +137,8 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
     setThemeState(readStorage<Theme>('ins_theme', 'dark'));
     setDone(savedDone);
     setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
+    setLinkShared(readStorage<boolean>('ins_link_shared', false));
+    setChecklistHidden(readStorage<boolean>('ins_checklist_hidden', false));
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
 
@@ -179,6 +189,16 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
     writeStorage('ins_storefront_prompt_dismissed', true);
   }, []);
 
+  const markLinkShared = useCallback(() => {
+    setLinkShared(true);
+    writeStorage('ins_link_shared', true);
+  }, []);
+
+  const hideChecklist = useCallback(() => {
+    setChecklistHidden(true);
+    writeStorage('ins_checklist_hidden', true);
+  }, []);
+
   const value = useMemo(
     () => ({
       theme,
@@ -200,6 +220,10 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
       refreshStorefrontStatus,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
+      linkShared,
+      markLinkShared,
+      checklistHidden,
+      hideChecklist,
       offers,
       refreshOffers,
       payouts,
@@ -223,6 +247,10 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
       refreshStorefrontStatus,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
+      linkShared,
+      markLinkShared,
+      checklistHidden,
+      hideChecklist,
       offers,
       refreshOffers,
       payouts,
