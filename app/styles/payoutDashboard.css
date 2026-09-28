@@ -117,7 +117,7 @@
 }
 .ins-pd-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 118px;
+  grid-template-columns: minmax(0, 1fr) auto 118px 84px;
   align-items: center;
   gap: 16px;
   padding: 12px 10px;
@@ -171,6 +171,53 @@
   font-size: 15px;
   font-weight: 700;
   color: var(--text);
+}
+
+/* Row action (Refund) */
+.ins-pd-act {
+  justify-self: end;
+}
+.ins-pd-act .ins-btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-color: var(--line);
+}
+.ins-pd-act .ins-btn:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+/* Refund dialog (reuses the checkout dialog's overlay, panel and breakdown) */
+.ins-refund-box {
+  width: 460px;
+}
+.ins-refund-sub {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ins-refund-seg {
+  display: flex;
+}
+.ins-refund-seg .ins-sf-seg-it {
+  flex: 1;
+  justify-content: center;
+}
+.ins-refund-notes {
+  margin: -8px 0 14px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.ins-refund-box .ins-auth-form > .ins-refund-sub {
+  margin-bottom: 4px;
+}
+.ins-refund-go {
+  flex: 1;
+  justify-content: center;
 }
 
 /* Account status strip */
@@ -235,7 +282,7 @@
   /* Payment rows: name + amount on one line, offer/date + status underneath. */
   .ins-pd-row {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: 'who amt' 'who chip';
+    grid-template-areas: 'who amt' 'who chip' 'act act';
     row-gap: 6px;
   }
   .ins-pd-row .ins-pd-who {
@@ -246,6 +293,15 @@
   }
   .ins-pd-row > .ins-chip {
     grid-area: chip;
+  }
+  .ins-pd-row .ins-pd-act {
+    grid-area: act;
+  }
+  .ins-pd-row .ins-pd-act:empty {
+    display: none;
+  }
+  .ins-pd-act .ins-btn {
+    height: 36px;
   }
   .ins-pd-row.compact {
     grid-template-areas: 'who chip';

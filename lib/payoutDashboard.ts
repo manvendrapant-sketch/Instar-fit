@@ -57,6 +57,8 @@ export interface CoachPaymentSummary {
   /** What the coach keeps from it after Instar's fee and any refunds (0 once fully refunded). Server-computed. */
   netCents: number;
   refundedCents: number;
+  /** How much can still be refunded (0 when fully refunded, disputed or failed). Server-computed. */
+  refundableCents: number;
   currency: string;
   status: PaymentStatusName;
   paidAt: string;
@@ -196,9 +198,9 @@ export const SAMPLE_DASHBOARD: PayoutDashboardResponse = {
     { id: 'po_s3', amountCents: 19_502, currency: 'usd', status: 'paid', arrivalDate: daysFromNow(-9), createdAt: daysFromNow(-11) },
   ],
   payments: [
-    { id: 'pay_s1', clientName: 'Leah Kim', clientEmail: 'leah@example.com', offerName: '1:1 Coaching', amountCents: 20_497, netCents: 19_502, refundedCents: 0, currency: 'usd', status: 'succeeded', paidAt: daysFromNow(0) },
-    { id: 'pay_s2', clientName: 'Jake Thompson', clientEmail: 'jake@example.com', offerName: '12-week strength block', amountCents: 51_397, netCents: 48_902, refundedCents: 0, currency: 'usd', status: 'succeeded', paidAt: daysFromNow(-4) },
-    { id: 'pay_s3', clientName: null, clientEmail: 'priya.s@example.com', offerName: 'Discovery call', amountCents: 5_047, netCents: 0, refundedCents: 5_047, currency: 'usd', status: 'refunded', paidAt: daysFromNow(-6) },
-    { id: 'pay_s4', clientName: 'Sam Ortiz', clientEmail: 'sam@example.com', offerName: '1:1 Coaching', amountCents: 20_497, netCents: 19_502, refundedCents: 0, currency: 'usd', status: 'disputed', paidAt: daysFromNow(-12) },
+    { id: 'pay_s1', clientName: 'Leah Kim', clientEmail: 'leah@example.com', offerName: '1:1 Coaching', amountCents: 20_497, netCents: 19_502, refundedCents: 0, refundableCents: 20_497, currency: 'usd', status: 'succeeded', paidAt: daysFromNow(0) },
+    { id: 'pay_s2', clientName: 'Jake Thompson', clientEmail: 'jake@example.com', offerName: '12-week strength block', amountCents: 51_397, netCents: 48_902, refundedCents: 0, refundableCents: 51_397, currency: 'usd', status: 'succeeded', paidAt: daysFromNow(-4) },
+    { id: 'pay_s3', clientName: null, clientEmail: 'priya.s@example.com', offerName: 'Discovery call', amountCents: 5_047, netCents: 0, refundedCents: 5_047, refundableCents: 0, currency: 'usd', status: 'refunded', paidAt: daysFromNow(-6) },
+    { id: 'pay_s4', clientName: 'Sam Ortiz', clientEmail: 'sam@example.com', offerName: '1:1 Coaching', amountCents: 20_497, netCents: 19_502, refundedCents: 0, refundableCents: 0, currency: 'usd', status: 'disputed', paidAt: daysFromNow(-12) },
   ],
 };

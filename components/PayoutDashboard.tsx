@@ -7,6 +7,8 @@ import { useAppState } from '@/lib/store';
 import { formatMoney } from '@/lib/offers';
 import { LoadingSection } from '@/components/LoadingSection';
 import { STOREFRONT_PATH } from '@/lib/storefront';
+import { RefundDialog } from '@/components/RefundDialog';
+import { isRefundable } from '@/lib/refunds';
 import {
   arrivalLabel,
   clientLabel,
@@ -30,6 +32,7 @@ import {
 export function PayoutDashboard() {
   const { toast } = useAppState();
   const [state, setState] = useState<DashboardResult | null>(null);
+  const [refunding, setRefunding] = useState<CoachPaymentSummary | null>(null);
 
   const load = useCallback(() => {
     setState(null);
@@ -58,6 +61,19 @@ export function PayoutDashboard() {
   const d = state.data;
   const manage = () => toast('This will open your Stripe Express dashboard');
 
+  // Replace the refunded payment's row with the server's updated version, in place.
+  function onRefunded(updated: CoachPaymentSummary, sample: boolean) {
+    setRefunding(null);
+    setState((s) =>
+      s && s.ok ? { ...s, data: { ...s.data, payments: s.data.payments.map((p) => (p.id === updated.id ? updated : p)) } } : s,
+    );
+    toast(
+      sample
+        ? 'Sample only: nothing was refunded.'
+        : `Refund sent to ${clientLabel(updated)}. It usually reaches their card in 5–10 business days.`,
+    );
+  }
+
   return (
     <div className="ins-pd">
       {state.sample && (
@@ -80,7 +96,7 @@ export function PayoutDashboard() {
           </div>
 
           <div className="ins-pd-grid">
-            <PaymentsPanel payments={d.payments} />
+            <PaymentsPanel payments={d.payments} onRefund={setRefunding} />
             <div className="ins-pd-side">
               <PayoutsPanel payouts={d.payouts} />
               <section className="ins-panel ins-pd-card ins-in d3" aria-labelledby="pd-sched">
@@ -95,6 +111,8 @@ export function PayoutDashboard() {
           </div>
         </>
       )}
+
+      {refunding && <RefundDialog payment={refunding} onClose={() => setRefunding(null)} onRefunded={onRefunded} />}
 
       <section className="ins-pd-account ins-in d4" aria-label="Payout account">
         <span>
@@ -143,7 +161,7 @@ function Stat({ label, cents, note }: { label: string; cents: number; note: stri
   );
 }
 
-function PaymentsPanel({ payments }: { payments: CoachPaymentSummary[] }) {
+function PaymentsPanel({ payments, onRefund }: { payments: CoachPaymentSummary[]; onRefund: (p: CoachPaymentSummary) => void }) {
   return (
     <section className="ins-panel ins-pd-card ins-in d2" aria-labelledby="pd-payments">
       <div className="ins-pd-card-h">
@@ -170,6 +188,15 @@ function PaymentsPanel({ payments }: { payments: CoachPaymentSummary[] }) {
                   {p.refundedCents > 0 && <span className="ins-pd-muted ins-num">−{formatMoney(p.refundedCents)} refunded</span>}
                 </div>
                 <span className={`ins-chip ${st.chip}`}>{st.label}</span>
+                <span className="ins-pd-act">
+                  {isRefundable(p) ? (
+                    <button type="button" className="ins-btn quiet" onClick={() => onRefund(p)} aria-label={`Refund ${clientLabel(p)}`}>
+                      Refund
+                    </button>
+                  ) : p.status === 'disputed' ? (
+                    <span className="ins-pd-muted">In dispute</span>
+                  ) : null}
+                </span>
               </li>
             );
           })}

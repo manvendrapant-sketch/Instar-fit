@@ -341,6 +341,16 @@ this needs a real signup attempt against the live site to know for sure, same as
   visible "Sample data" banner; any other failure (API error, offline) shows a real error, never
   sample money. Every figure, including per-payment `netCents` (what the coach keeps after fee and
   refunds), is server-computed; the page only formats.
+- **Refunds (Sprint 5, Pari's side)** on `feat/storefront-refunds` (stacked on the payout-dashboard
+  branch): a Refund action on each refundable payment row opens `components/RefundDialog.tsx`, two
+  steps (amount/reason/private note → confirm against the server's quote). Calls **proposed**
+  `GET /api/coach/payments/[id]/refund-quote?amountCents=` (`RefundQuoteResponse`: client gets back,
+  comes out of the coach's balance, plain-English `notes`) and `POST /api/coach/payments/[id]/refund`
+  (`CreateRefundRequest` `{amountCents, reason, note}` → `CreateRefundResponse` with the updated
+  `CoachPaymentSummary`), shapes in `lib/refunds.ts` until agreed. `CoachPaymentSummary` also gained
+  a server-computed `refundableCents`. Same 404-only sample fallback as the dashboard; sample mode
+  echoes the amount with no fee maths, because who absorbs Instar's 2% and the service fee on a
+  refund is still an open decision for Manvendra.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
