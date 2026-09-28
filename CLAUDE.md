@@ -1670,3 +1670,41 @@ silently skipping a write, a handler reading data Stripe never sends, and now an
 crashing the route outright) — worth remembering as a pattern: this route processes concurrent,
 retried, adversarial-by-nature deliveries, and needs the same defensive rigor as any other
 untrusted-input boundary, not just the happy path a first pass tends to cover.
+
+### The throw-and-retry fix above wasn't good enough on its own — self-healing instead (2026-09-28)
+
+Manvendra tested a fresh subscription checkout right after the crash fix above deployed, and the
+resulting `invoice.paid` delivery still failed — not with a bare crash this time (that part of the
+fix worked), but with the *intended* `throw new Error('...no subscriptions row...')`. Pasting both
+deliveries' raw JSON side by side proved out the theory directly: **this specific `invoice.paid`
+event (`evt_1UKfoELbSUpF5Nq3PPN2r2Jb`) was created by Stripe at `1790606737`, one full second
+*before* `checkout.session.completed` (`evt_1UKfoFLbSUpF5Nq3QAvmo8Q7`, created at `1790606738`)
+for the same subscription** — and Stripe delivered them in that same order, so the invoice event
+hit the "no subscriptions row yet" branch for real, not hypothetically. Resending the invoice event
+manually *after* the checkout event had gone through (200 OK) fixed it immediately — confirming the
+row genuinely didn't exist yet at the moment of the first delivery, exactly as designed for, but
+also confirming that "throw and wait for Stripe's own retry backoff" is not an acceptable
+experience for a real coach: Stripe's backoff put the automatic retry **58 minutes** out, meaning a
+coach's very first subscription payment could sit invisible on the payouts page for the better
+part of an hour unless someone happened to notice the failed delivery in the Stripe dashboard and
+clicked Resend by hand.
+
+**Fixed properly this time**: `handleInvoicePaid` and `handleSubscriptionSynced` no longer just
+throw when the `subscriptions` row is missing — they create it themselves, using metadata already
+present on their own event payload. Checkout's `subscription_data.metadata` (`coachId`/`offerId`/
+`clientEmail`) is copied by Stripe onto both the Subscription object and every Invoice it
+generates, so whichever of the three events (`checkout.session.completed`, `invoice.paid`,
+`customer.subscription.*`) is actually delivered first now has everything it needs to create the
+row on its own, rather than depending on a different event to have won a race with no ordering
+guarantee. Extracted the insert logic `handleCheckoutSessionCompleted` already had into a shared
+`ensureSubscriptionRow(db, { stripeSubscriptionId, offerId, clientId })` — keyed by
+`onConflictDoNothing` on `stripeSubscriptionId`, so whichever handler actually runs first wins and
+every other handler's own call becomes a no-op read that just returns the row the first one made.
+Each handler still throws if the event itself is missing the metadata needed to create the row (a
+genuinely unrecoverable case, not a race) or if there's no active Stripe price for the offer.
+
+Shipped with new tests (`lib/commerce/webhookHandlers.test.ts`) covering the self-heal path for
+both handlers and the still-throws-when-genuinely-unrecoverable cases. Not independently verified
+against the live DB from this sandbox (same standing limitation as every pass in this file) — worth
+a fresh subscription checkout end to end to confirm the payment now shows up on the very first
+webhook delivery, no manual Resend needed.
