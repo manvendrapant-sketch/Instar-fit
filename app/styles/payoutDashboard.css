@@ -1,0 +1,259 @@
+/* Instar · payout dashboard (Sprint 5): the money view on Business → Payouts once Connect is
+   ready. One blue main card (next payout), neutral glass for the rest; mobile first for layout
+   since coaches check this on their phones. Tokens and Obsidian+ component classes only. */
+
+.ins-pd {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 120px;
+}
+.ins-pd-sample {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-row);
+  border: 1px dashed var(--warn);
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.ins-pd-sample b {
+  color: var(--text);
+}
+
+/* Top: main card + balance stats */
+.ins-pd-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: var(--space-28);
+  align-items: stretch;
+}
+.ins-pd-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 190px;
+}
+.ins-pd-hero .ins-big {
+  margin-top: 6px;
+}
+.ins-pd-stats {
+  padding: var(--space-26);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  align-content: center;
+}
+.ins-pd-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ins-pd-stat-l {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.ins-pd-stat b {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 30px;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.ins-pd-muted {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* Payments + side column */
+.ins-pd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: var(--space-28);
+  align-items: start;
+}
+.ins-pd-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ins-pd-card {
+  padding: 22px var(--space-26);
+}
+.ins-pd-card h2 {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.ins-pd-card-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ins-pd-sched {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.ins-pd-card .ins-pd-muted + .ins-btn {
+  margin-top: 14px;
+}
+.ins-pd-none {
+  margin: 4px 0 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.ins-pd-list {
+  list-style: none;
+  margin: 0 -10px;
+  padding: 0;
+}
+.ins-pd-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 118px;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 10px;
+  border-radius: var(--radius-row);
+}
+.ins-pd-row + .ins-pd-row {
+  border-top: 1px solid var(--line);
+}
+.ins-pd-row:hover {
+  background: var(--chip);
+}
+.ins-pd-row.compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.ins-pd-row .ins-chip {
+  justify-self: end;
+}
+.ins-pd-who {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ins-pd-who b {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ins-pd-who span {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ins-pd-amt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ins-pd-amt b {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Account status strip */
+.ins-pd-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  padding: 14px 18px;
+  border-radius: var(--radius-row);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.ins-pd-account > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ins-pd-account .ins-btn {
+  margin-left: auto;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+@media (max-width: 1100px) {
+  .ins-pd-top,
+  .ins-pd-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .ins-pd {
+    gap: 16px;
+  }
+  .ins-pd-hero {
+    min-height: 0;
+  }
+  .ins-pd-stats {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 20px 18px;
+    gap: 16px;
+  }
+  .ins-pd-stat {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 2px 12px;
+  }
+  .ins-pd-stat b {
+    grid-row: span 2;
+    font-size: 24px;
+    align-self: center;
+  }
+  .ins-pd-card {
+    padding: 18px;
+  }
+  .ins-pd-card-h .ins-label {
+    display: none;
+  }
+  /* Payment rows: name + amount on one line, offer/date + status underneath. */
+  .ins-pd-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'who amt' 'who chip';
+    row-gap: 6px;
+  }
+  .ins-pd-row .ins-pd-who {
+    grid-area: who;
+  }
+  .ins-pd-row .ins-pd-amt {
+    grid-area: amt;
+  }
+  .ins-pd-row > .ins-chip {
+    grid-area: chip;
+  }
+  .ins-pd-row.compact {
+    grid-template-areas: 'who chip';
+  }
+  .ins-pd-amt > .ins-num:first-child {
+    display: none;
+  }
+  .ins-pd-account .ins-btn {
+    margin-left: 0;
+  }
+}

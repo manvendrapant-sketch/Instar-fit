@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { ConnectStatus } from '@/lib/commerce/types';
 import { Icon } from '@/lib/icons';
 import { LoadingSection } from '@/components/LoadingSection';
+import { PayoutDashboard } from '@/components/PayoutDashboard';
 import { useAppState } from '@/lib/store';
 import { STOREFRONT_PATH } from '@/lib/storefront';
 import { OFFERS_PATH } from '@/lib/offers';
@@ -38,7 +39,7 @@ function PayoutsHero() {
 }
 
 export function PayoutsPage() {
-  const { payouts, hydrated, storefront, offers, toast } = useAppState();
+  const { payouts, hydrated, storefront, storefrontStatus, offers } = useAppState();
   if (!hydrated) {
     return (
       <>
@@ -53,6 +54,39 @@ export function PayoutsPage() {
   const current = stepIndex(status);
   const ready = isPayoutsReady(payouts);
   const due = requirementLabels(payouts.requirementsDue);
+
+  // Connected: this page becomes the money view (Sprint 5), with a nudge above it while the
+  // storefront isn't live, since there's no money to show until clients can buy.
+  if (ready) {
+    return (
+      <>
+        <PayoutsHero />
+        {!storefrontStatus?.published && (
+          <section className="ins-panel ins-offers-next ins-in d1" aria-labelledby="po-next">
+            <span className="ins-sf-prompt-icon" aria-hidden="true">
+              <Icon name="storefront" />
+            </span>
+            <div>
+              <span className="ins-label">Next step</span>
+              <h2 id="po-next">{storefront?.completed ? 'Publish your storefront' : 'Create your storefront'}</h2>
+              <p>
+                {storefront?.completed
+                  ? 'You can get paid now. Publish your storefront and put the link in your Instagram bio.'
+                  : 'You can get paid now. Create your storefront so clients have somewhere to buy.'}
+              </p>
+              <div className="ins-actions" style={{ marginTop: 14 }}>
+                <Link href={STOREFRONT_PATH} className="ins-btn go">
+                  {storefront?.completed ? 'Go to storefront' : 'Create storefront'}
+                  <Icon name="arrow" />
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
+        <PayoutDashboard />
+      </>
+    );
+  }
 
   return (
     <>
@@ -129,57 +163,8 @@ export function PayoutsPage() {
               </div>
             )}
 
-            {ready && (
-              <>
-                <dl className="ins-po-facts">
-                  <div>
-                    <dt>Accepting payments</dt>
-                    <dd className="ok">
-                      <span className="ins-po-live" aria-hidden="true" /> On
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Payouts to your bank</dt>
-                    <dd className="ok">
-                      <span className="ins-po-live" aria-hidden="true" /> On
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Bank account</dt>
-                    <dd>Managed on Stripe</dd>
-                  </div>
-                </dl>
-                <div className="ins-actions">
-                  <button type="button" className="ins-btn" onClick={() => toast('This will open your Stripe Express dashboard')}>
-                    Manage on Stripe
-                  </button>
-                </div>
-              </>
-            )}
           </section>
 
-          {ready && (
-            <section className="ins-panel ins-offers-next ins-in d3" aria-labelledby="po-next">
-              <span className="ins-sf-prompt-icon" aria-hidden="true">
-                <Icon name="storefront" />
-              </span>
-              <div>
-                <span className="ins-label">Next step</span>
-                <h2 id="po-next">{storefront?.completed ? 'Publish your storefront' : 'Create your storefront'}</h2>
-                <p>
-                  {storefront?.completed
-                    ? 'You can get paid now. Publish your storefront and put the link in your Instagram bio.'
-                    : 'You can get paid now. Create your storefront so clients have somewhere to buy.'}
-                </p>
-                <div className="ins-actions" style={{ marginTop: 14 }}>
-                  <Link href={STOREFRONT_PATH} className="ins-btn go">
-                    {storefront?.completed ? 'Go to storefront' : 'Create storefront'}
-                    <Icon name="arrow" />
-                  </Link>
-                </div>
-              </div>
-            </section>
-          )}
         </div>
 
         <aside className="ins-sf-preview ins-po-side ins-in d3" aria-labelledby="po-how">

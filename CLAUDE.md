@@ -332,6 +332,15 @@ this needs a real signup attempt against the live site to know for sure, same as
   present) into `AppStateProvider`, which otherwise fired `/api/offers`, `/api/coach/*`,
   `/api/storefront` on every page, including `/login`, `/signup` and the public storefront, where
   they 401 and toast an error at a visitor who isn't a coach.
+- **Payout dashboard (Sprint 5, Pari's side)** on `feat/storefront-payout-dashboard`:
+  `/business/payouts` becomes the money view once Connect is ready (`components/PayoutDashboard.tsx`,
+  `lib/payoutDashboard.ts`). It calls a **proposed, not-yet-built** `GET /api/coach/payouts/dashboard`
+  whose shape (`PayoutDashboardResponse`: balance, schedule, recent payouts, recent payments) lives in
+  `lib/payoutDashboard.ts` rather than `lib/commerce/types.ts` until Manvendra agrees it; move it
+  there when the route lands. Until then an HTTP 404 from that route shows sample data under a
+  visible "Sample data" banner; any other failure (API error, offline) shows a real error, never
+  sample money. Every figure, including per-payment `netCents` (what the coach keeps after fee and
+  refunds), is server-computed; the page only formats.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
