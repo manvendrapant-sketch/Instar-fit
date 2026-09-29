@@ -36,6 +36,56 @@
   color: var(--muted);
   font-size: 12.5px;
 }
+.ins-clients-email {
+  overflow-wrap: anywhere;
+}
+
+/* On a phone the four columns don't fit: each client becomes a stacked row, the column name
+   shown beside each value (from the cell's data-label), so nothing scrolls sideways. */
+@media (max-width: 760px) {
+  .ins-clients-table {
+    padding: 18px;
+  }
+  .ins-clients-table thead {
+    display: none;
+  }
+  .ins-clients-table table,
+  .ins-clients-table tbody,
+  .ins-clients-table tr,
+  .ins-clients-table td {
+    display: block;
+  }
+  .ins-clients-table tr {
+    padding: 12px 0;
+    border-top: 1px solid var(--chip);
+  }
+  .ins-clients-table td {
+    border-top: 0;
+    padding: 3px 0;
+  }
+  .ins-clients-table td[data-label] {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    text-align: right;
+  }
+  .ins-clients-table td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    font-size: 12.5px;
+    color: var(--muted);
+    text-align: left;
+  }
+  /* Keep a status chip and its "resumes …" note together on the right. */
+  .ins-clients-table td[data-label] .ins-chip {
+    margin-left: auto;
+  }
+  .ins-clients-table td[data-label] .ins-clients-sub {
+    display: inline;
+    margin: 0 0 0 6px;
+  }
+}
 
 /* Client-facing "My subscription" cards (Sprint 4). */
 .ins-client-sub-card {

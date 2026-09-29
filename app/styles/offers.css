@@ -261,7 +261,8 @@
 }
 .ins-offers-back {
   display: inline-block;
-  margin-bottom: 18px;
+  padding: 8px 0;
+  margin: -8px 0 10px;
   text-decoration: none;
 }
 .ins-offers-back:hover {
@@ -475,8 +476,12 @@
   }
   .ins-offers-main {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 4px;
+  }
+  .ins-offers-order .ins-input-btn {
+    width: 32px;
+    height: 32px;
   }
   .ins-offers-vis span {
     display: none;

@@ -113,14 +113,14 @@ export function ClientsPage() {
                       <b>{c.clientName ?? c.clientEmail}</b>
                       {c.clientName && <span className="ins-clients-email">{c.clientEmail}</span>}
                     </td>
-                    <td>{c.offerName}</td>
-                    <td>
+                    <td data-label="Offer">{c.offerName}</td>
+                    <td data-label="Status">
                       <span className={`ins-chip ${status.chip}`}>{status.label}</span>
                       {c.status === 'paused' && c.pauseResumesAt && (
                         <span className="ins-clients-sub">resumes {formatDate(c.pauseResumesAt)}</span>
                       )}
                     </td>
-                    <td>{c.status === 'canceled' ? '—' : formatDate(c.currentPeriodEnd)}</td>
+                    <td data-label="Next charge">{c.status === 'canceled' ? '—' : formatDate(c.currentPeriodEnd)}</td>
                   </tr>
                 );
               })}
@@ -150,9 +150,9 @@ export function ClientsPage() {
                     <b>{p.clientName ?? p.clientEmail}</b>
                     {p.clientName && <span className="ins-clients-email">{p.clientEmail}</span>}
                   </td>
-                  <td>{p.offerName}</td>
-                  <td>{formatMoney(p.amountCents)}</td>
-                  <td>{formatDate(p.purchasedAt)}</td>
+                  <td data-label="Offer">{p.offerName}</td>
+                  <td data-label="Amount">{formatMoney(p.amountCents)}</td>
+                  <td data-label="Purchased">{formatDate(p.purchasedAt)}</td>
                 </tr>
               ))}
             </tbody>

@@ -361,8 +361,8 @@ this needs a real signup attempt against the live site to know for sure, same as
   the payout dashboard's "In dispute" links to the inbox. Logic + copy in `lib/disputes.ts` (tested).
   Needs `charge.dispute.created/updated/closed` subscribed on the Stripe webhook before any dispute
   shows up at all.
-- **"Get ready to sell" checklist (Sprint 6 onboarding, Pari's side)**, merged to `main`, then cut
-  down on `feat/storefront-checklist` at Pari's request: `components/SellChecklist.tsx` on Today
+- **"Get ready to sell" checklist (Sprint 6 onboarding, Pari's side)**, merged to `main` twice: first as six steps, then cut
+  down to four (via `feat/storefront-checklist`) at Pari's request: `components/SellChecklist.tsx` on Today
   (under `DisputeAlert`). **Four** steps — storefront → offer (an `active` one) → payouts → publish —
   built by `lib/sellChecklist.ts`'s `buildChecklist` from data `AppStateProvider` already loads.
   "Share your link" and "First sale" were dropped deliberately; don't add them back without asking.
@@ -373,6 +373,15 @@ this needs a real signup attempt against the live site to know for sure, same as
   returned `setupChecklistClosedAt` into the loaded profile. The checklist is hidden if either is set,
   so it stays closed on every device; the local flag is only the fallback if saving fails (no toast
   for that). The `StorefrontPrompt` coachmark still shows alongside it for a coach with no storefront.
+- **Sprint 6 polish pass (Pari's side)** on `feat/storefront-polish`: audited every coach screen at
+  1440px dark and 390px dark/light (overflow, off-screen elements, unlabeled controls, tap-target
+  size, console errors, one `h1`). Fixed: `/business/clients`' tables scrolled the whole page
+  sideways on a phone (now stacked rows from each cell's `data-label`); **offer prices were hidden on
+  phones everywhere** — the Today queue's `@media` rule hid every `.ins-q-value` in the app, not just
+  the queue's (now scoped to `.ins-q-head .ins-q-value`; `OffersList` reuses that class for prices);
+  the offer row's description ran under the show/hide button; a long client email ran into the name
+  on a dispute's facts card; back links, reorder arrows and "In dispute" were under 30px tall. The
+  Today roster-pulse dots are still small, but that's the static prototype, not Commerce.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
