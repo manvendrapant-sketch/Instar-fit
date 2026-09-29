@@ -1,24 +1,26 @@
 import { apiFetch } from './api-client';
-import type { CoachPaymentsResponse, OnboardingStatus } from './commerce/types';
+import type { OnboardingStatus, SetupChecklistCloseResponse } from './commerce/types';
 import { OFFERS_PATH } from './offers';
 import { PAYOUTS_PATH } from './payouts';
 import { STOREFRONT_PATH } from './storefront';
 
 // "Get ready to sell" (Sprint 6 onboarding): the checklist on Today that walks a new coach from
-// sign-up to their first sale. Every step is read from data the app already loads (profile,
-// offers, Connect status, publish state) plus the payments list for the last one. Nothing here is
-// stored on the server except what those resources already hold; "shared your link" is a local
-// preference, like the other Today dismissals.
+// sign-up to a live storefront. Four steps, read from data the app already loads (profile, offers,
+// Connect status, publish state). Once all four are done it closes itself, for good: the close is
+// saved on the coach (POST /api/coach/setup-checklist/close), so it never comes back on any device.
 
-export type StepKey = 'storefront' | 'offer' | 'payouts' | 'publish' | 'share' | 'sale';
+export type StepKey = 'storefront' | 'offer' | 'payouts' | 'publish';
 
 /**
  * done: finished. next: the one step to do now. todo: can be done, but isn't next.
- * waiting: nothing for the coach to do (Stripe reviewing, no sale yet). locked: needs an earlier step.
+ * waiting: nothing for the coach to do (Stripe reviewing). locked: needs an earlier step.
  */
 export type StepState = 'done' | 'next' | 'todo' | 'waiting' | 'locked';
 
-export type StepAction = { kind: 'link'; label: string; href: string } | { kind: 'copy'; label: string };
+export interface StepAction {
+  label: string;
+  href: string;
+}
 
 export interface ChecklistStep {
   key: StepKey;
@@ -36,9 +38,6 @@ export interface ChecklistInput {
   published: boolean;
   /** The server's own publish gate (GET /api/storefront), never recomputed here. */
   canPublish: boolean;
-  linkShared: boolean;
-  /** null while unknown (not published yet, or the payments list didn't load). */
-  hasSale: boolean | null;
 }
 
 type Draft = Omit<ChecklistStep, 'state'> & { done: boolean; waiting?: boolean; locked?: boolean };
@@ -54,26 +53,26 @@ function payoutsStep(p: OnboardingStatus): Draft {
         done: false,
         waiting: true,
         body: 'Stripe is checking your details. This usually takes a day or two; nothing to do meanwhile.',
-        action: { kind: 'link', label: 'See status', href: PAYOUTS_PATH },
+        action: { label: 'See status', href: PAYOUTS_PATH },
       };
     case 'action_needed':
       return {
         ...base,
         done: false,
         body: 'Stripe needs a few more details before it can pay you.',
-        action: { kind: 'link', label: 'Finish on Stripe', href: PAYOUTS_PATH },
+        action: { label: 'Finish on Stripe', href: PAYOUTS_PATH },
       };
     default:
       return {
         ...base,
         done: false,
         body: 'Add your bank through Stripe so client payments reach you. About 5 minutes.',
-        action: { kind: 'link', label: 'Connect payouts', href: PAYOUTS_PATH },
+        action: { label: 'Connect payouts', href: PAYOUTS_PATH },
       };
   }
 }
 
-/** Builds the six steps and decides which single one is "next". */
+/** Builds the four steps and decides which single one is "next". */
 export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
   const drafts: Draft[] = [
     {
@@ -81,7 +80,7 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
       title: 'Create your storefront',
       done: input.storefrontCompleted,
       body: input.storefrontCompleted ? 'Your page has a name, bio and link.' : 'Your link-in-bio page: name, photo, what you coach.',
-      action: input.storefrontCompleted ? null : { kind: 'link', label: 'Create storefront', href: STOREFRONT_PATH },
+      action: input.storefrontCompleted ? null : { label: 'Create storefront', href: STOREFRONT_PATH },
     },
     {
       key: 'offer',
@@ -91,7 +90,7 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
         input.activeOffers > 0
           ? `${input.activeOffers} offer${input.activeOffers === 1 ? '' : 's'} on your storefront.`
           : 'Monthly coaching, a program or a single session: what clients can buy.',
-      action: input.activeOffers > 0 ? null : { kind: 'link', label: 'Add an offer', href: `${OFFERS_PATH}/new` },
+      action: input.activeOffers > 0 ? null : { label: 'Add an offer', href: `${OFFERS_PATH}/new` },
     },
     payoutsStep(input.payouts),
     {
@@ -104,30 +103,7 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
         : input.canPublish
           ? 'Everything’s in place. Make your page public.'
           : 'Unlocks once you have an offer and payouts are connected.',
-      action: input.published || !input.canPublish ? null : { kind: 'link', label: 'Publish', href: STOREFRONT_PATH },
-    },
-    {
-      key: 'share',
-      title: 'Share your link',
-      // A sale means the link clearly got out, however it was shared.
-      done: input.published && (input.linkShared || input.hasSale === true),
-      locked: !input.published,
-      body: input.published ? 'Put it in your Instagram bio or send it to a client you’re talking to.' : 'Once you’re live.',
-      action: input.published ? { kind: 'copy', label: 'Copy link' } : null,
-    },
-    {
-      key: 'sale',
-      title: 'Get your first sale',
-      done: input.hasSale === true,
-      waiting: input.published,
-      locked: !input.published,
-      body:
-        input.hasSale === true
-          ? 'Your first client paid. Nice work.'
-          : input.published
-            ? 'This ticks itself off the moment a client pays.'
-            : 'Once you’re live.',
-      action: null,
+      action: input.published || !input.canPublish ? null : { label: 'Publish', href: STOREFRONT_PATH },
     },
   ];
 
@@ -141,8 +117,6 @@ export function buildChecklist(input: ChecklistInput): ChecklistStep[] {
       state = 'next';
       nextTaken = true;
     } else state = 'todo';
-    // Only the next step and ones the coach can still act on keep their button; "waiting" keeps a
-    // quiet status link where it has one.
     return { ...step, state, action: state === 'done' || state === 'locked' ? null : step.action };
   });
 }
@@ -152,18 +126,16 @@ export function progress(steps: ChecklistStep[]): { done: number; total: number;
   return { done, total: steps.length, complete: done === steps.length };
 }
 
-/** The heading: what to do next, in words, or where things stand when nothing's actionable. */
+/** The heading: what to do next, in words, or what it's waiting on when nothing's actionable. */
 export function headline(steps: ChecklistStep[]): string {
-  if (progress(steps).complete) return 'You’re open for business';
   const next = steps.find((s) => s.state === 'next');
   if (next) return `Next: ${next.title.charAt(0).toLowerCase()}${next.title.slice(1)}`;
   if (steps.find((s) => s.key === 'payouts')?.state === 'waiting') return 'Waiting on Stripe';
-  return 'Waiting on your first client';
+  return 'You’re live';
 }
 
-/** Whether the coach has any payment that went through. null when it couldn't be checked. */
-export async function fetchHasSale(): Promise<boolean | null> {
-  const res = await apiFetch<CoachPaymentsResponse>('/api/coach/payments');
-  if (!res.success) return null;
-  return res.data.payments.some((p) => p.status !== 'failed');
+/** Saves "checklist closed" on the coach, for good. Returns the close time, or null if it failed. */
+export async function closeSetupChecklist(): Promise<string | null> {
+  const res = await apiFetch<SetupChecklistCloseResponse>('/api/coach/setup-checklist/close', { method: 'POST' });
+  return res.success ? res.data.setupChecklistClosedAt : null;
 }

@@ -14,7 +14,7 @@ import { setStorefrontPublished, storefrontLink } from '@/lib/storefront';
  * "you're live" state with the link to share.
  */
 export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
-  const { storefront, offers, payouts, storefrontStatus, refreshStorefrontStatus, toast, markLinkShared } = useAppState();
+  const { storefront, offers, payouts, storefrontStatus, refreshStorefrontStatus, toast } = useAppState();
   const [confirmUnpublish, setConfirmUnpublish] = useState(false);
   const [busy, setBusy] = useState(false);
   if (!storefront) return null;
@@ -42,7 +42,6 @@ export function StorefrontPublish({ onEdit }: { onEdit: () => void }) {
   function copy() {
     const url = `${window.location.origin}${pagePath}`;
     navigator.clipboard?.writeText(url).catch(() => {});
-    markLinkShared();
     toast(`Copied ${link}`);
   }
 

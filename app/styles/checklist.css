@@ -18,12 +18,6 @@
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.ins-sc-sub {
-  margin: 6px 0 0;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
-}
 .ins-sc-hide {
   flex: none;
 }
@@ -41,15 +35,12 @@
   background: linear-gradient(90deg, var(--hero-from), var(--hero-to));
   transition: width 0.5s ease;
 }
-.ins-sc.complete .ins-sc-bar {
-  margin-bottom: 0;
-}
 .ins-sc-steps {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 .ins-sc-step {

@@ -361,17 +361,18 @@ this needs a real signup attempt against the live site to know for sure, same as
   the payout dashboard's "In dispute" links to the inbox. Logic + copy in `lib/disputes.ts` (tested).
   Needs `charge.dispute.created/updated/closed` subscribed on the Stripe webhook before any dispute
   shows up at all.
-- **"Get ready to sell" checklist (Sprint 6 onboarding, Pari's side)** on `feat/storefront-checklist`:
-  `components/SellChecklist.tsx` on Today (under `DisputeAlert`). Six steps in the agreed order —
-  storefront → offer (an `active` one) → payouts → publish → share link → first sale — built by
-  `lib/sellChecklist.ts`'s `buildChecklist` from data `AppStateProvider` already loads; no backend
-  change. Exactly one step is "next" (with the primary button); a Stripe review is "waiting", not
-  next; publish is locked on the server's own `canPublish`, never a local guess. "Share" is done once
-  the coach copies the link (here or from `StorefrontPublish`, both call the store's
-  `markLinkShared`, a local-only pref like `storefrontPromptDismissed`) or once a sale exists. "First
-  sale" fetches `GET /api/coach/payments` only once published (any non-failed payment counts). Hide
-  is a local pref too (`checklistHidden`), so it comes back on another device. The existing
-  `StorefrontPrompt` coachmark still shows alongside it for a coach with no storefront.
+- **"Get ready to sell" checklist (Sprint 6 onboarding, Pari's side)**, merged to `main`, then cut
+  down on `feat/storefront-checklist` at Pari's request: `components/SellChecklist.tsx` on Today
+  (under `DisputeAlert`). **Four** steps — storefront → offer (an `active` one) → payouts → publish —
+  built by `lib/sellChecklist.ts`'s `buildChecklist` from data `AppStateProvider` already loads.
+  "Share your link" and "First sale" were dropped deliberately; don't add them back without asking.
+  Exactly one step is "next"; a Stripe review is "waiting"; publish is locked on the server's own
+  `canPublish`. **No Done button**: once all four are done it closes itself immediately. Closing (that,
+  or Hide) goes through the store's `hideChecklist`, which sets a local `checklistHidden` flag *and*
+  calls `POST /api/coach/setup-checklist/close` (Manvendra's, migration `0007`), then writes the
+  returned `setupChecklistClosedAt` into the loaded profile. The checklist is hidden if either is set,
+  so it stays closed on every device; the local flag is only the fallback if saving fails (no toast
+  for that). The `StorefrontPrompt` coachmark still shows alongside it for a coach with no storefront.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This

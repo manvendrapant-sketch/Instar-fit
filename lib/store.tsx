@@ -5,6 +5,7 @@ import { QUEUE } from './data';
 import { fetchProfile } from './storefront';
 import { fetchOffers } from './offers';
 import { fetchOnboardingStatus } from './payouts';
+import { closeSetupChecklist } from './sellChecklist';
 import type { CoachOfferSummary, CoachProfile, OnboardingStatus, StorefrontStatus } from './commerce/types';
 import { apiFetch } from './api-client';
 
@@ -38,11 +39,10 @@ interface AppState {
   /** The "create your storefront" popup on Today was closed with "Later". Still a local-only preference. */
   storefrontPromptDismissed: boolean;
   dismissStorefrontPrompt: () => void;
-  /** The coach copied their storefront link (Today's checklist or the storefront page). Local-only. */
-  linkShared: boolean;
-  markLinkShared: () => void;
-  /** Today's "Get ready to sell" checklist was hidden. Local-only. */
+  /** Today's "Get ready to sell" checklist was closed in this browser. The lasting record is the
+   * profile's `setupChecklistClosedAt`; this is the fallback if saving that fails. */
   checklistHidden: boolean;
+  /** Closes the checklist for good: hides it now and saves the close on the coach's profile. */
   hideChecklist: () => void;
   /** The coach's offers, from GET /api/offers, in storefront order. */
   offers: CoachOfferSummary[];
@@ -91,7 +91,6 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
   const [storefront, setStorefront] = useState<CoachProfile | null>(null);
   const [storefrontStatus, setStorefrontStatus] = useState<StorefrontStatus | null>(null);
   const [storefrontPromptDismissed, setStorefrontPromptDismissed] = useState(false);
-  const [linkShared, setLinkShared] = useState(false);
   const [checklistHidden, setChecklistHidden] = useState(false);
   const [offers, setOffers] = useState<CoachOfferSummary[]>([]);
   const [hydrated, setHydrated] = useState(false);
@@ -137,7 +136,6 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
     setThemeState(readStorage<Theme>('ins_theme', 'dark'));
     setDone(savedDone);
     setStorefrontPromptDismissed(readStorage<boolean>('ins_storefront_prompt_dismissed', false));
-    setLinkShared(readStorage<boolean>('ins_link_shared', false));
     setChecklistHidden(readStorage<boolean>('ins_checklist_hidden', false));
     const firstOpen = QUEUE.find((q) => !savedDone.includes(q.id));
     setOpenId(firstOpen ? firstOpen.id : null);
@@ -189,14 +187,14 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
     writeStorage('ins_storefront_prompt_dismissed', true);
   }, []);
 
-  const markLinkShared = useCallback(() => {
-    setLinkShared(true);
-    writeStorage('ins_link_shared', true);
-  }, []);
-
   const hideChecklist = useCallback(() => {
     setChecklistHidden(true);
     writeStorage('ins_checklist_hidden', true);
+    // Saved on the coach so it stays closed on every device. If this fails, the browser flag above
+    // still keeps it closed here; no toast, since nothing the coach sees is wrong.
+    closeSetupChecklist().then((closedAt) => {
+      if (closedAt) setStorefront((s) => (s ? { ...s, setupChecklistClosedAt: closedAt } : s));
+    });
   }, []);
 
   const value = useMemo(
@@ -220,8 +218,6 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
       refreshStorefrontStatus,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
-      linkShared,
-      markLinkShared,
       checklistHidden,
       hideChecklist,
       offers,
@@ -247,8 +243,6 @@ export function AppStateProvider({ children, signedIn = true }: { children: Reac
       refreshStorefrontStatus,
       storefrontPromptDismissed,
       dismissStorefrontPrompt,
-      linkShared,
-      markLinkShared,
       checklistHidden,
       hideChecklist,
       offers,

@@ -1,66 +1,53 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Icon } from '@/lib/icons';
 import { useAppState } from '@/lib/store';
-import { storefrontLink } from '@/lib/storefront';
-import { buildChecklist, fetchHasSale, headline, progress, type ChecklistStep } from '@/lib/sellChecklist';
+import { buildChecklist, headline, progress, type ChecklistStep } from '@/lib/sellChecklist';
 
 /**
- * "Get ready to sell" on Today (Sprint 6 onboarding): six steps from an empty account to a first
- * sale, the next one highlighted with its button. Everything is read from what the app already
- * loaded; the only extra call is the payments list, and only once the storefront is live.
+ * "Get ready to sell" on Today (Sprint 6 onboarding): four steps from an empty account to a live
+ * storefront, the next one highlighted with its button. Closes itself the moment all four are done,
+ * and stays closed on every device once the coach has closed it (server-side, on their profile).
  */
 export function SellChecklist() {
-  const { hydrated, storefront, offers, payouts, storefrontStatus, linkShared, markLinkShared, checklistHidden, hideChecklist, toast } =
-    useAppState();
-  const published = !!storefrontStatus?.published;
-  const [hasSale, setHasSale] = useState<boolean | null>(null);
+  const { hydrated, storefront, offers, payouts, storefrontStatus, checklistHidden, hideChecklist } = useAppState();
 
+  const closed = checklistHidden || !!storefront?.setupChecklistClosedAt;
+  const steps =
+    hydrated && storefront
+      ? buildChecklist({
+          storefrontCompleted: storefront.completed,
+          activeOffers: offers.filter((o) => o.active).length,
+          payouts,
+          published: !!storefrontStatus?.published,
+          canPublish: !!storefrontStatus?.canPublish,
+        })
+      : null;
+  const complete = !!steps && progress(steps).complete;
+
+  // All four done: close it for good. No "Done" click needed.
   useEffect(() => {
-    if (!published) return;
-    let live = true;
-    fetchHasSale().then((v) => live && setHasSale(v));
-    return () => {
-      live = false;
-    };
-  }, [published]);
+    if (complete && !closed) hideChecklist();
+  }, [complete, closed, hideChecklist]);
 
   // Nothing until the first load settles, so a coach who's already set up never sees it flash in.
-  if (!hydrated || !storefront || checklistHidden) return null;
+  if (!steps || closed || complete) return null;
 
-  const steps = buildChecklist({
-    storefrontCompleted: storefront.completed,
-    activeOffers: offers.filter((o) => o.active).length,
-    payouts,
-    published,
-    canPublish: !!storefrontStatus?.canPublish,
-    linkShared,
-    hasSale: published ? hasSale : null,
-  });
-  const { done, total, complete } = progress(steps);
-
-  function copy() {
-    if (!storefront) return;
-    const path = storefrontStatus?.publicUrl ?? `/${storefront.handle}`;
-    navigator.clipboard?.writeText(`${window.location.origin}${path}`).catch(() => {});
-    markLinkShared();
-    toast(`Copied ${storefrontLink(storefront.handle)}`);
-  }
+  const { done, total } = progress(steps);
 
   return (
-    <section className={`ins-panel ins-sc ${complete ? 'complete' : ''} ins-in d2`} aria-labelledby="sc-title">
+    <section className="ins-panel ins-sc ins-in d2" aria-labelledby="sc-title">
       <div className="ins-sc-head">
         <div>
           <span className="ins-label">
             Get ready to sell · {done} of {total}
           </span>
           <h2 id="sc-title">{headline(steps)}</h2>
-          {complete && <p className="ins-sc-sub">Your storefront is live and your first client has paid. You can hide this now.</p>}
         </div>
         <button type="button" className="ins-btn quiet ins-sc-hide" onClick={hideChecklist}>
-          {complete ? 'Done' : 'Hide'}
+          Hide
         </button>
       </div>
 
@@ -76,13 +63,11 @@ export function SellChecklist() {
         <span style={{ width: `${(done / total) * 100}%` }} />
       </div>
 
-      {!complete && (
-        <ol className="ins-sc-steps">
-          {steps.map((s, i) => (
-            <Step key={s.key} step={s} n={i + 1} onCopy={copy} />
-          ))}
-        </ol>
-      )}
+      <ol className="ins-sc-steps">
+        {steps.map((s, i) => (
+          <Step key={s.key} step={s} n={i + 1} />
+        ))}
+      </ol>
     </section>
   );
 }
@@ -95,7 +80,7 @@ const STATE_WORD: Record<ChecklistStep['state'], string> = {
   locked: 'Not yet',
 };
 
-function Step({ step, n, onCopy }: { step: ChecklistStep; n: number; onCopy: () => void }) {
+function Step({ step, n }: { step: ChecklistStep; n: number }) {
   const { state, action } = step;
   const primary = state === 'next';
   return (
@@ -110,17 +95,12 @@ function Step({ step, n, onCopy }: { step: ChecklistStep; n: number; onCopy: () 
         </b>
         <span>{step.body}</span>
       </div>
-      {action &&
-        (action.kind === 'copy' ? (
-          <button type="button" className={`ins-btn ${primary ? 'go' : 'quiet'}`} onClick={onCopy}>
-            {action.label}
-          </button>
-        ) : (
-          <Link href={action.href} className={`ins-btn ${primary ? 'go' : 'quiet'}`}>
-            {action.label}
-            {primary && <Icon name="arrow" />}
-          </Link>
-        ))}
+      {action && (
+        <Link href={action.href} className={`ins-btn ${primary ? 'go' : 'quiet'}`}>
+          {action.label}
+          {primary && <Icon name="arrow" />}
+        </Link>
+      )}
     </li>
   );
 }
