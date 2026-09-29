@@ -456,7 +456,7 @@
     grid-template-columns: 40px minmax(0, 1fr) 20px;
   }
   .ins-q-head .ins-chip,
-  .ins-q-value {
+  .ins-q-head .ins-q-value {
     display: none;
   }
   .ins-q-body {

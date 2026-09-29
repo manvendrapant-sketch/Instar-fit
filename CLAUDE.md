@@ -372,6 +372,15 @@ this needs a real signup attempt against the live site to know for sure, same as
   sale" fetches `GET /api/coach/payments` only once published (any non-failed payment counts). Hide
   is a local pref too (`checklistHidden`), so it comes back on another device. The existing
   `StorefrontPrompt` coachmark still shows alongside it for a coach with no storefront.
+- **Sprint 6 polish pass (Pari's side)** on `feat/storefront-polish`: audited every coach screen at
+  1440px dark and 390px dark/light (overflow, off-screen elements, unlabeled controls, tap-target
+  size, console errors, one `h1`). Fixed: `/business/clients`' tables scrolled the whole page
+  sideways on a phone (now stacked rows from each cell's `data-label`); **offer prices were hidden on
+  phones everywhere** — the Today queue's `@media` rule hid every `.ins-q-value` in the app, not just
+  the queue's (now scoped to `.ins-q-head .ins-q-value`; `OffersList` reuses that class for prices);
+  the offer row's description ran under the show/hide button; a long client email ran into the name
+  on a dispute's facts card; back links, reorder arrows and "In dispute" were under 30px tall. The
+  Today roster-pulse dots are still small, but that's the static prototype, not Commerce.
 - ORM choice (Drizzle, not Prisma) was an engineering call made without asking — revisit if there's
   a reason to prefer Prisma.
 - Database provider: Supabase (the connection string in use is a Supabase pooler) — matches "This
